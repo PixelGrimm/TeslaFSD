@@ -24,8 +24,10 @@ export class LaneDetector {
   private oncomingVotes = [0, 0, 0, 0]
   private sameLanes = 2
   private oncomingLanes = 0
+  private oncomingSide: -1 | 1 = 1 // UK default: oncoming on the right
   private yellowVotes = 0
   private hasYellow = false
+  private hasDivider = false
   private egoLaneIndex = 0
 
   /** Estimated vanishing-point x in normalized coords (handles roll / off-center aim). */
@@ -35,6 +37,10 @@ export class LaneDetector {
   private smoothWhite: number[] = []
   private smoothYellow: number[] = []
   private lastOverlayLines: OverlayLaneLine[] = []
+  /** Shared lateral bend: x(z) += roadCurve * t², t near→far. */
+  private roadCurve = 0
+  /** Per-boundary world polys from peak chains (left→right), when available. */
+  private visionPolys: { z: number; x: number }[][] = []
   private readonly bandTop = 0.55
   private readonly bandBottom = 0.94
 
@@ -73,12 +79,15 @@ export class LaneDetector {
     if (video.readyState >= 2 && video.videoWidth > 0) {
       this.sample(video)
     }
-    return buildLayout(
+    const layout = buildLayout(
       this.sameLanes,
       this.oncomingLanes,
       this.hasYellow,
+      this.hasDivider,
       this.egoLaneIndex,
+      this.oncomingSide,
     )
+    return applyCurveToLayout(layout, this.visionPolys, this.roadCurve)
   }
 
   getOverlayPeaks(): {
@@ -171,42 +180,109 @@ export class LaneDetector {
     else this.yellowVotes = Math.max(0, this.yellowVotes - 2)
     this.hasYellow = this.yellowVotes >= 8
 
-    const yellowCutPx =
+    const mid = this.vpX * this.w
+    const whiteForCount = this.smoothWhite.map((x) => x * this.w)
+
+    // Prefer yellow cut; else split at largest gap near center (urban dual carriage)
+    let cutPx: number | null =
       this.hasYellow && this.smoothYellow.length
         ? Math.min(...this.smoothYellow) * this.w
         : null
 
-    const whiteForCount = this.smoothWhite.map((x) => x * this.w)
-    const samePeaks =
-      yellowCutPx != null
-        ? whiteForCount.filter((p) => p >= yellowCutPx + 16)
-        : whiteForCount
-    const oncomingPeaks =
-      yellowCutPx != null ? whiteForCount.filter((p) => p < yellowCutPx - 14) : []
+    if (cutPx == null && whiteForCount.length >= 3) {
+      cutPx = findCenterCut(whiteForCount, mid)
+    }
+    // Urban: 4+ paint peaks often mean dual carriage even without a huge gap
+    if (cutPx == null && whiteForCount.length >= 4) {
+      const sorted = [...whiteForCount].sort((a, b) => a - b)
+      const midIdx = Math.floor((sorted.length - 1) / 2)
+      cutPx = (sorted[midIdx] + sorted[midIdx + 1]) / 2
+    }
 
-    const hasOncomingPaint = oncomingPeaks.length >= 2
+    const bidirectional = cutPx != null && whiteForCount.length >= 3
+    this.hasDivider = bidirectional || this.hasYellow
+
+    let samePeaks: number[]
+    let oncomingPeaks: number[]
+
+    if (bidirectional && cutPx != null) {
+      const leftPeaks = whiteForCount.filter((p) => p < cutPx - 8)
+      const rightPeaks = whiteForCount.filter((p) => p > cutPx + 8)
+      // UK: ego/same on left of road, oncoming on right. US yellow: oncoming left.
+      if (this.hasYellow) {
+        this.oncomingSide = -1
+        samePeaks = rightPeaks.length ? rightPeaks : whiteForCount.filter((p) => p >= cutPx - 4)
+        oncomingPeaks = leftPeaks
+      } else {
+        // No yellow → left-hand traffic (UK/EU urban)
+        if (rightPeaks.length >= 1 && leftPeaks.length >= 1) {
+          this.oncomingSide = 1
+          samePeaks = leftPeaks
+          oncomingPeaks = rightPeaks
+        } else {
+          this.oncomingSide = 1
+          samePeaks = whiteForCount
+          oncomingPeaks = []
+        }
+      }
+    } else {
+      samePeaks = whiteForCount
+      oncomingPeaks = []
+    }
+
     const boundaryPeaks =
-      yellowCutPx != null ? [yellowCutPx, ...samePeaks] : samePeaks
-    const observedSame = clamp(estimateLaneCount(boundaryPeaks, this.w), 1, 4)
+      cutPx != null && this.hasYellow ? [cutPx, ...samePeaks] : samePeaks
+    let observedSame = clamp(estimateLaneCount(boundaryPeaks, this.w), 1, 3)
+    // Typical UK urban: 2 same + 2 oncoming when both sides look busy
+    if (
+      bidirectional &&
+      !this.hasYellow &&
+      samePeaks.length >= 2 &&
+      oncomingPeaks.length >= 2
+    ) {
+      observedSame = 2
+    }
 
-    // Asymmetric voting: easier to gain a lane, harder to lose (prevents flicker)
     this.commitVotesAsym(this.sameVotes, observedSame, this.sameLanes, (n) => {
       this.sameLanes = n
     })
 
-    if (this.hasYellow && hasOncomingPaint) {
-      const observedOncoming = clamp(estimateLaneCount(oncomingPeaks, this.w), 1, 2)
-      this.commitVotesAsym(this.oncomingVotes, Math.max(1, observedOncoming), this.oncomingLanes, (n) => {
-        this.oncomingLanes = Math.max(1, n)
-      })
-    } else {
-      this.oncomingLanes = 0
-      this.oncomingVotes.fill(0)
+    if (bidirectional && oncomingPeaks.length >= 1) {
+      let observedOncoming = clamp(
+        Math.max(1, estimateLaneCount([cutPx!, ...oncomingPeaks], this.w)),
+        1,
+        2,
+      )
+      if (!this.hasYellow && oncomingPeaks.length >= 2) observedOncoming = 2
+      this.commitVotesAsym(
+        this.oncomingVotes,
+        observedOncoming,
+        this.oncomingLanes,
+        (n) => {
+          this.oncomingLanes = Math.max(1, n)
+        },
+      )
+      // Seed so the first strong dual-carriage frame shows oncoming quickly
+      if (this.oncomingLanes < 1) this.oncomingLanes = Math.max(1, observedOncoming)
+    } else if (!this.hasYellow && !bidirectional) {
+      for (let i = 0; i < this.oncomingVotes.length; i++) {
+        this.oncomingVotes[i] = Math.max(0, this.oncomingVotes[i] - 0.35)
+      }
+      if (this.oncomingVotes.every((v) => v < 1)) this.oncomingLanes = 0
     }
 
-    // Ego lane from image center relative to VP-corrected mid
-    const mid = this.vpX * this.w
     this.egoLaneIndex = pickEgoLane(boundaryPeaks, this.sameLanes, mid)
+
+    // Curved geometry: link multi-row peaks → world polys + shared roadCurve
+    const { polys, curve } = buildVisionPolys(
+      rowPeaks,
+      yellowRowPeaks,
+      this.vpX,
+      this.w,
+      this.h,
+    )
+    this.visionPolys = polys
+    this.roadCurve = this.roadCurve * 0.72 + curve * 0.28
 
     this.lastOverlayLines = buildOverlayLines(
       this.smoothWhite,
@@ -246,19 +322,18 @@ export class LaneLayoutAnimator {
   private marks: LaneMark[] = []
   private sameLanes = 2
   private oncomingLanes = 0
-  private hasYellow = false
+  private oncomingSide: -1 | 1 = 1
   private egoLaneIndex = 0
-  private mergeT = 1 // 1 = idle, 0..1 during merge
+  private mergeT = 1
+  private dividerX: number | null = null
 
   update(target: LaneState, dt: number): LaneState {
     const targetSame = target.sameDirectionLanes
     const dropping = targetSame < this.sameLanes
 
     if (dropping && this.mergeT >= 1) {
-      // Start merge: keep old layout and converge the disappearing edge
       this.mergeT = 0
     } else if (targetSame > this.sameLanes) {
-      // Instantly accept new lane (split / reveal)
       this.sameLanes = targetSame
       this.mergeT = 1
     }
@@ -272,37 +347,38 @@ export class LaneLayoutAnimator {
         to,
         this.mergeT,
         target.oncomingLanes,
-        target.dividerX != null || this.hasYellow,
+        target.dividerX != null,
+        target.marks.some((m) => m.kind.includes('yellow')),
         this.egoLaneIndex,
+        target.oncomingSide,
       )
       if (this.mergeT >= 1) {
         this.sameLanes = to
         this.oncomingLanes = target.oncomingLanes
-        this.hasYellow = target.dividerX != null || target.marks.some((m) => m.kind.includes('yellow'))
-        this.egoLaneIndex = clamp(
-          Math.round(
-            (-(target.marks[0]?.x ?? -EGO_HALF) - EGO_HALF) / LANE_W,
-          ),
-          0,
-          Math.max(0, to - 1),
-        )
-        this.marks = target.marks.map((m) => ({ ...m, xFar: m.x, opacity: 1 }))
+        this.oncomingSide = target.oncomingSide
+        this.dividerX = target.dividerX
+        this.marks = target.marks.map((m) => ({
+          ...m,
+          xFar: m.xFar ?? m.x,
+          opacity: 1,
+          poly: m.poly ? m.poly.map((p) => ({ ...p })) : rebuildPoly(m.x, m.xFar ?? m.x),
+        }))
       }
     } else {
       this.sameLanes = targetSame
       this.oncomingLanes = target.oncomingLanes
-      this.hasYellow =
-        target.dividerX != null || target.marks.some((m) => m.kind.includes('yellow'))
-      // Softly lerp mark x toward target
+      this.oncomingSide = target.oncomingSide
+      this.dividerX = target.dividerX
       this.marks = lerpMarks(this.marks, target.marks, Math.min(1, dt * 4))
     }
 
     return {
       sameDirectionLanes: this.mergeT < 1 ? Math.max(targetSame, this.sameLanes) : this.sameLanes,
       oncomingLanes: this.oncomingLanes,
+      oncomingSide: this.oncomingSide,
       marks: this.marks.map((m) => ({ ...m })),
       egoLaneHalfWidth: EGO_HALF,
-      dividerX: target.dividerX,
+      dividerX: this.dividerX,
     }
   }
 }
@@ -312,11 +388,13 @@ function blendMergeLayout(
   toLanes: number,
   t: number,
   oncoming: number,
+  hasDivider: boolean,
   hasYellow: boolean,
   egoIdx: number,
+  oncomingSide: -1 | 1,
 ): LaneMark[] {
-  const from = buildLayout(fromLanes, oncoming, hasYellow, egoIdx).marks
-  const to = buildLayout(toLanes, oncoming, hasYellow, egoIdx).marks
+  const from = buildLayout(fromLanes, oncoming, hasYellow, hasDivider, egoIdx, oncomingSide).marks
+  const to = buildLayout(toLanes, oncoming, hasYellow, hasDivider, egoIdx, oncomingSide).marks
   const ease = t * t * (3 - 2 * t)
   const farT = Math.min(1, ease * 1.4)
   const nearT = Math.max(0, (ease - 0.2) / 0.8)
@@ -324,7 +402,6 @@ function blendMergeLayout(
   const out: LaneMark[] = []
   const claimedFrom = new Set<number>()
 
-  // Pair each target mark with nearest source
   for (const b of to) {
     let best = -1
     let bestD = Infinity
@@ -338,26 +415,31 @@ function blendMergeLayout(
     }
     const a = best >= 0 ? from[best] : b
     if (best >= 0) claimedFrom.add(best)
+    const x = a.x + (b.x - a.x) * nearT
+    const xFar = a.x + (b.x - a.x) * farT
     out.push({
       kind: b.kind,
-      x: a.x + (b.x - a.x) * nearT,
-      xFar: a.x + (b.x - a.x) * farT,
+      x,
+      xFar,
       opacity: 1,
+      poly: rebuildPoly(x, xFar),
     })
   }
 
-  // Extra source marks (disappearing lane edge) converge into nearest survivor
   for (let i = 0; i < from.length; i++) {
     if (claimedFrom.has(i)) continue
     const a = from[i]
     const nearest = to.reduce((best, m) =>
       Math.abs(m.x - a.x) < Math.abs(best.x - a.x) ? m : best,
     )
+    const x = a.x + (nearest.x - a.x) * nearT
+    const xFar = a.x + (nearest.x - a.x) * Math.min(1, farT + 0.2)
     out.push({
       kind: 'dashed_white',
-      x: a.x + (nearest.x - a.x) * nearT,
-      xFar: a.x + (nearest.x - a.x) * Math.min(1, farT + 0.2),
+      x,
+      xFar,
       opacity: Math.max(0, 1 - ease),
+      poly: rebuildPoly(x, xFar),
     })
   }
 
@@ -365,7 +447,14 @@ function blendMergeLayout(
 }
 
 function lerpMarks(prev: LaneMark[], target: LaneMark[], a: number): LaneMark[] {
-  if (!prev.length) return target.map((m) => ({ ...m, xFar: m.x, opacity: 1 }))
+  if (!prev.length) {
+    return target.map((m) => ({
+      ...m,
+      xFar: m.xFar ?? m.x,
+      opacity: 1,
+      poly: m.poly ? m.poly.map((p) => ({ ...p })) : rebuildPoly(m.x, m.xFar ?? m.x),
+    }))
+  }
   const out: LaneMark[] = []
   const used = new Set<number>()
   for (const p of prev) {
@@ -383,14 +472,325 @@ function lerpMarks(prev: LaneMark[], target: LaneMark[], a: number): LaneMark[] 
       used.add(best)
       const t = target[best]
       const x = p.x + (t.x - p.x) * a
-      out.push({ kind: t.kind, x, xFar: x, opacity: 1 })
+      const xFarT = t.xFar ?? t.x
+      const xFarP = p.xFar ?? p.x
+      const xFar = xFarP + (xFarT - xFarP) * a
+      out.push({
+        kind: t.kind,
+        x,
+        xFar,
+        opacity: 1,
+        poly: lerpPoly(p.poly, t.poly, a, x, xFar),
+      })
     }
   }
   for (let i = 0; i < target.length; i++) {
     if (used.has(i)) continue
-    out.push({ ...target[i], xFar: target[i].x, opacity: 1 })
+    const m = target[i]
+    out.push({
+      ...m,
+      xFar: m.xFar ?? m.x,
+      opacity: 1,
+      poly: m.poly ? m.poly.map((p) => ({ ...p })) : rebuildPoly(m.x, m.xFar ?? m.x),
+    })
   }
   return out.sort((m, n) => m.x - n.x)
+}
+
+function lerpPoly(
+  prev: { z: number; x: number }[] | undefined,
+  target: { z: number; x: number }[] | undefined,
+  a: number,
+  xNear: number,
+  xFar: number,
+): { z: number; x: number }[] {
+  const fallback = rebuildPoly(xNear, xFar)
+  const A = prev && prev.length >= 2 ? prev : fallback
+  const B = target && target.length >= 2 ? target : fallback
+  return POLY_Z.map((z) => {
+    const xa = samplePolyX(A, z, xNear)
+    const xb = samplePolyX(B, z, xFar)
+    return { z, x: xa + (xb - xa) * a }
+  })
+}
+
+const POLY_Z = [6, 25, 45, 70, 95, 120]
+
+function rebuildPoly(
+  xNear: number,
+  xFar: number,
+  curve = 0,
+): { z: number; x: number }[] {
+  const z0 = POLY_Z[0]
+  const z1 = POLY_Z[POLY_Z.length - 1]
+  return POLY_Z.map((z) => {
+    const t = (z - z0) / (z1 - z0)
+    return { z, x: xNear + (xFar - xNear) * t + curve * t * t }
+  })
+}
+
+function samplePolyX(
+  poly: { z: number; x: number }[],
+  z: number,
+  fallbackX: number,
+): number {
+  if (!poly.length) return fallbackX
+  if (z <= poly[0].z) return poly[0].x
+  if (z >= poly[poly.length - 1].z) return poly[poly.length - 1].x
+  for (let i = 0; i < poly.length - 1; i++) {
+    const a = poly[i]
+    const b = poly[i + 1]
+    if (z >= a.z && z <= b.z) {
+      const t = (z - a.z) / Math.max(1e-6, b.z - a.z)
+      return a.x + (b.x - a.x) * t
+    }
+  }
+  return fallbackX
+}
+
+/** Attach vision polys / shared roadCurve onto nominal layout marks. */
+function applyCurveToLayout(
+  layout: LaneState,
+  visionPolys: { z: number; x: number }[][],
+  roadCurve: number,
+): LaneState {
+  const marks = layout.marks.map((m) => {
+    const xFar = m.xFar ?? m.x
+    // Match vision chain by near-x proximity
+    let best: { z: number; x: number }[] | null = null
+    let bestD = 2.2
+    for (const poly of visionPolys) {
+      if (poly.length < 2) continue
+      const d = Math.abs(poly[0].x - m.x)
+      if (d < bestD) {
+        bestD = d
+        best = poly
+      }
+    }
+    let poly: { z: number; x: number }[]
+    if (best) {
+      // Shift poly so near x matches layout mark (lane count is authoritative)
+      const dx = m.x - best[0].x
+      const shifted = best.map((p) => ({ z: p.z, x: p.x + dx }))
+      // Blend far end toward layout xFar while keeping bend shape
+      const bendFar = shifted[shifted.length - 1].x - shifted[0].x
+      const wantFar = xFar - m.x
+      const scale = Math.abs(bendFar) > 0.05 ? wantFar / bendFar : 1
+      poly = shifted.map((p) => ({
+        z: p.z,
+        x: m.x + (p.x - shifted[0].x) * scale,
+      }))
+      // Softly mix shared curve if vision bend is weak
+      if (Math.abs(bendFar) < 0.35 && Math.abs(roadCurve) > 0.15) {
+        poly = rebuildPoly(m.x, xFar, roadCurve)
+      }
+    } else {
+      poly = rebuildPoly(m.x, xFar, roadCurve)
+    }
+    return {
+      ...m,
+      x: poly[0].x,
+      xFar: poly[poly.length - 1].x,
+      poly,
+    }
+  })
+  return { ...layout, marks }
+}
+
+/**
+ * Link row peaks into chains, convert to world (x,z), fit/sample polys,
+ * and estimate a shared roadCurve.
+ */
+function buildVisionPolys(
+  whiteRows: { y: number; xs: number[] }[],
+  yellowRows: { y: number; xs: number[] }[],
+  vpX: number,
+  w: number,
+  h: number,
+): { polys: { z: number; x: number }[][]; curve: number } {
+  const chains = [
+    ...linkPeakChains(yellowRows),
+    ...linkPeakChains(whiteRows),
+  ]
+
+  const yRef = Math.floor(h * 0.9)
+  const vpY = h * 0.32
+  const refGaps: number[] = []
+  const bottom = whiteRows[whiteRows.length - 1]
+  if (bottom && bottom.xs.length >= 2) {
+    for (let i = 1; i < bottom.xs.length; i++) {
+      refGaps.push(bottom.xs[i] - bottom.xs[i - 1])
+    }
+  }
+  refGaps.sort((a, b) => a - b)
+  const medianGap =
+    refGaps.length > 0 ? refGaps[Math.floor(refGaps.length / 2)] : w * 0.18
+  const mPerPxRef = LANE_W / clamp(medianGap, 22, w * 0.45)
+
+  const polys: { z: number; x: number }[][] = []
+  const curves: number[] = []
+
+  for (const chain of chains) {
+    if (chain.length < 2) continue
+    const worldPts: { z: number; x: number }[] = []
+    for (const p of chain) {
+      const z = imageYToZ(p.y, h)
+      const scale = (yRef - vpY) / Math.max(8, p.y - vpY)
+      const mPerPx = mPerPxRef * scale
+      const x = (p.x - vpX * w) * mPerPx
+      worldPts.push({ z, x })
+    }
+    // Near → far (increasing z)
+    worldPts.sort((a, b) => a.z - b.z)
+    const poly = fitPolyQuadratic(worldPts)
+    if (poly.length >= 2) {
+      polys.push(poly)
+      // Curvature from mid-point residual vs straight chord
+      const mid = poly[Math.floor(poly.length / 2)]
+      const last = poly[poly.length - 1]
+      const midT = (mid.z - poly[0].z) / Math.max(1, last.z - poly[0].z)
+      const straightMid = poly[0].x + (last.x - poly[0].x) * midT
+      curves.push((mid.x - straightMid) / Math.max(0.08, midT * midT))
+    }
+  }
+
+  polys.sort((a, b) => a[0].x - b[0].x)
+  let curve = 0
+  if (curves.length) {
+    curves.sort((a, b) => a - b)
+    curve = clamp(curves[Math.floor(curves.length / 2)], -8, 8)
+  }
+  return { polys, curve }
+}
+
+/** Walk bottom→top linking nearest peaks within a gap. */
+function linkPeakChains(
+  rows: { y: number; xs: number[] }[],
+): { x: number; y: number }[][] {
+  if (!rows.length) return []
+  // rows ordered far→near in sample; reverse so index 0 = nearest
+  const ordered = [...rows].sort((a, b) => b.y - a.y)
+  const near = ordered[0]
+  const chains: { x: number; y: number }[][] = near.xs.map((x) => [{ x, y: near.y }])
+
+  for (let r = 1; r < ordered.length; r++) {
+    const row = ordered[r]
+    const used = new Set<number>()
+    for (const chain of chains) {
+      const tip = chain[chain.length - 1]
+      let best = -1
+      let bestD = 36
+      for (let i = 0; i < row.xs.length; i++) {
+        if (used.has(i)) continue
+        const d = Math.abs(row.xs[i] - tip.x)
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      }
+      if (best >= 0) {
+        used.add(best)
+        chain.push({ x: row.xs[best], y: row.y })
+      }
+    }
+  }
+  return chains.filter((c) => c.length >= 2)
+}
+
+/** Inverse-depth heuristic: bottom ≈ 10m, band top ≈ 75m. */
+function imageYToZ(y: number, h: number): number {
+  const yN = y / h
+  const yNear = 0.94
+  const yFar = 0.55
+  const invNear = 1 / 10
+  const invFar = 1 / 75
+  const t = clamp((yNear - yN) / (yNear - yFar), 0, 1)
+  return 1 / (invNear + (invFar - invNear) * t)
+}
+
+/** Least-squares quadratic x(z)=a+b z+c z², then sample POLY_Z. */
+function fitPolyQuadratic(
+  pts: { z: number; x: number }[],
+): { z: number; x: number }[] {
+  if (pts.length < 2) return []
+  if (pts.length === 2) {
+    return rebuildPoly(pts[0].x, pts[1].x, 0).map((p) => ({
+      z: p.z,
+      x: samplePolyX(
+        [
+          { z: pts[0].z, x: pts[0].x },
+          { z: pts[1].z, x: pts[1].x },
+        ],
+        p.z,
+        pts[0].x,
+      ),
+    }))
+  }
+
+  // Use up to 4 points spread along the chain
+  const picked: { z: number; x: number }[] = []
+  const n = Math.min(4, pts.length)
+  for (let i = 0; i < n; i++) {
+    const idx = Math.round((i * (pts.length - 1)) / Math.max(1, n - 1))
+    picked.push(pts[idx])
+  }
+
+  // Solve normal equations for [a,b,c]
+  let s0 = 0,
+    s1 = 0,
+    s2 = 0,
+    s3 = 0,
+    s4 = 0
+  let sx = 0,
+    sxz = 0,
+    sxz2 = 0
+  for (const p of picked) {
+    const z = p.z
+    const z2 = z * z
+    s0++
+    s1 += z
+    s2 += z2
+    s3 += z2 * z
+    s4 += z2 * z2
+    sx += p.x
+    sxz += p.x * z
+    sxz2 += p.x * z2
+  }
+
+  // 3x3 solve via Cramer's / elimination
+  const det =
+    s0 * (s2 * s4 - s3 * s3) -
+    s1 * (s1 * s4 - s3 * s2) +
+    s2 * (s1 * s3 - s2 * s2)
+  let a = picked[0].x
+  let b = 0
+  let c = 0
+  if (Math.abs(det) > 1e-6) {
+    a =
+      (sx * (s2 * s4 - s3 * s3) -
+        s1 * (sxz * s4 - s3 * sxz2) +
+        s2 * (sxz * s3 - s2 * sxz2)) /
+      det
+    b =
+      (s0 * (sxz * s4 - s3 * sxz2) -
+        sx * (s1 * s4 - s3 * s2) +
+        s2 * (s1 * sxz2 - sxz * s2)) /
+      det
+    c =
+      (s0 * (s2 * sxz2 - sxz * s3) -
+        s1 * (s1 * sxz2 - sxz * s2) +
+        sx * (s1 * s3 - s2 * s2)) /
+      det
+  } else {
+    // Fallback: linear
+    const z0 = picked[0].z
+    const z1 = picked[picked.length - 1].z
+    b = (picked[picked.length - 1].x - picked[0].x) / Math.max(1, z1 - z0)
+    a = picked[0].x - b * z0
+    c = 0
+  }
+
+  return POLY_Z.map((z) => ({ z, x: a + b * z + c * z * z }))
 }
 
 function scoreRow(
@@ -591,41 +991,83 @@ function buildLayout(
   sameLanes: number,
   oncomingLanes: number,
   hasYellow: boolean,
+  hasDivider: boolean,
   egoLaneIndex: number,
+  oncomingSide: -1 | 1 = 1,
 ): LaneState {
   const marks: LaneMark[] = []
   const half = EGO_HALF
   const egoIdx = clamp(egoLaneIndex, 0, sameLanes - 1)
   const sameLeftEdge = -half - egoIdx * LANE_W
   const sameRightEdge = sameLeftEdge + sameLanes * LANE_W
+  const showOncoming = hasDivider && oncomingLanes > 0
 
-  if (hasYellow && oncomingLanes > 0) {
+  const pushMark = (x: number, kind: LaneMark['kind']) => {
+    marks.push({ x, kind, xFar: x, opacity: 1 })
+  }
+
+  if (showOncoming && oncomingSide < 0) {
+    // US-style: oncoming left of divider
     const oncomingLeft = sameLeftEdge - oncomingLanes * LANE_W
-    marks.push({ x: oncomingLeft, kind: 'solid_white', xFar: oncomingLeft, opacity: 1 })
+    pushMark(oncomingLeft, 'solid_white')
     for (let i = 1; i < oncomingLanes; i++) {
-      const x = oncomingLeft + LANE_W * i
-      marks.push({ x, kind: 'dashed_white', xFar: x, opacity: 1 })
+      pushMark(oncomingLeft + LANE_W * i, 'dashed_white')
     }
-    marks.push({ x: sameLeftEdge, kind: 'double_yellow', xFar: sameLeftEdge, opacity: 1 })
-  } else if (hasYellow) {
-    marks.push({ x: sameLeftEdge, kind: 'solid_yellow', xFar: sameLeftEdge, opacity: 1 })
+    pushMark(sameLeftEdge, hasYellow ? 'double_yellow' : 'solid_white')
+  } else if (hasYellow && !showOncoming) {
+    pushMark(sameLeftEdge, 'solid_yellow')
   } else {
-    marks.push({ x: sameLeftEdge, kind: 'solid_white', xFar: sameLeftEdge, opacity: 1 })
+    pushMark(sameLeftEdge, 'solid_white')
   }
 
   for (let i = 1; i < sameLanes; i++) {
-    const x = sameLeftEdge + LANE_W * i
-    marks.push({ x, kind: 'dashed_white', xFar: x, opacity: 1 })
+    pushMark(sameLeftEdge + LANE_W * i, 'dashed_white')
   }
-  marks.push({ x: sameRightEdge, kind: 'solid_white', xFar: sameRightEdge, opacity: 1 })
+
+  if (showOncoming && oncomingSide > 0) {
+    // UK-style: divider then oncoming to the right
+    pushMark(sameRightEdge, hasYellow ? 'double_yellow' : 'solid_white')
+    for (let i = 1; i < oncomingLanes; i++) {
+      pushMark(sameRightEdge + LANE_W * i, 'dashed_white')
+    }
+    pushMark(sameRightEdge + LANE_W * oncomingLanes, 'solid_white')
+  } else {
+    pushMark(sameRightEdge, 'solid_white')
+  }
+
+  const dividerX = showOncoming
+    ? oncomingSide > 0
+      ? sameRightEdge
+      : sameLeftEdge
+    : null
 
   return {
     sameDirectionLanes: sameLanes,
-    oncomingLanes: hasYellow && oncomingLanes > 0 ? oncomingLanes : 0,
+    oncomingLanes: showOncoming ? oncomingLanes : 0,
+    oncomingSide,
     marks,
     egoLaneHalfWidth: half,
-    dividerX: hasYellow && oncomingLanes > 0 ? sameLeftEdge : null,
+    dividerX,
   }
+}
+
+/** Largest gap near image center → dual-carriage divider. */
+function findCenterCut(peaks: number[], mid: number): number | null {
+  if (peaks.length < 2) return null
+  const sorted = [...peaks].sort((a, b) => a - b)
+  let bestGap = 0
+  let bestCut: number | null = null
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1]
+    const cut = (sorted[i] + sorted[i - 1]) / 2
+    const centerBias = 1 - Math.min(1, Math.abs(cut - mid) / (mid * 0.7))
+    const score = gap * (0.55 + centerBias)
+    if (score > bestGap && gap > 14) {
+      bestGap = score
+      bestCut = cut
+    }
+  }
+  return bestCut
 }
 
 function estimateLaneCount(peaks: number[], width: number): number {

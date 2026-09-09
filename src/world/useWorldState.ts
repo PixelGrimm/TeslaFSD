@@ -6,13 +6,17 @@ import { VisionDetector } from '../vision/detector'
 import { LaneDetector, LaneLayoutAnimator } from '../vision/lanes'
 import { EgoMotionEstimator } from '../vision/motion'
 import { SpeedLimitDetector } from '../vision/speedLimit'
+import { sampleTrafficLightSignal } from '../vision/trafficLight'
 import { IoUTracker } from '../vision/tracker'
+import { detectUrbanSurroundings } from '../vision/urban'
+import { detectZebraCrossing } from '../vision/zebra'
 import type {
   EgoMotion,
   LaneState,
   OverlayDetection,
   PerceptionOverlay,
   PerceptionStats,
+  SceneExtras,
   SpeedLimitSignState,
   WorldObject,
 } from './types'
@@ -21,20 +25,24 @@ const INFER_INTERVAL_MS = 90
 const LANE_INTERVAL_MS = 120
 const CURB_INTERVAL_MS = 140
 const LIMIT_INTERVAL_MS = 200
-const LERP = 0.22
-const STALE_MS = 380
+const URBAN_INTERVAL_MS = 280
+const LERP = 0.14
+const STALE_MS = 450
 const VEHICLE_CLASSES = new Set(['car', 'truck', 'bus', 'motorcycle'])
 
 const DEFAULT_LANES: LaneState = {
   sameDirectionLanes: 2,
-  oncomingLanes: 0,
+  oncomingLanes: 2,
+  oncomingSide: 1,
   marks: [
     { x: -1.8, kind: 'solid_white' },
     { x: 1.8, kind: 'dashed_white' },
     { x: 5.4, kind: 'solid_white' },
+    { x: 9.0, kind: 'dashed_white' },
+    { x: 12.6, kind: 'solid_white' },
   ],
   egoLaneHalfWidth: 1.8,
-  dividerX: null,
+  dividerX: 5.4,
 }
 
 const DEFAULT_CURBS: CurbState = {
@@ -45,18 +53,25 @@ const DEFAULT_CURBS: CurbState = {
     { x: -3.2, z: 45 },
   ],
   right: [
-    { x: 3.2, z: 4 },
-    { x: 3.2, z: 15 },
-    { x: 3.2, z: 30 },
-    { x: 3.2, z: 45 },
+    { x: 14.0, z: 4 },
+    { x: 14.0, z: 15 },
+    { x: 14.0, z: 30 },
+    { x: 14.0, z: 45 },
   ],
-  roadHalfWidth: 3.2,
+  roadHalfWidth: 8.5,
+}
+
+const DEFAULT_EXTRAS: SceneExtras = {
+  zebra: null,
+  buildings: [],
+  urban: false,
 }
 
 export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, active: boolean) {
   const [objects, setObjects] = useState<WorldObject[]>([])
   const [lanes, setLanes] = useState<LaneState>(DEFAULT_LANES)
   const [curbs, setCurbs] = useState<CurbState>(DEFAULT_CURBS)
+  const [extras, setExtras] = useState<SceneExtras>(DEFAULT_EXTRAS)
   const [speedLimit, setSpeedLimit] = useState<number | null>(null)
   const [speedSign, setSpeedSign] = useState<SpeedLimitSignState | null>(null)
   const [motion, setMotion] = useState<EgoMotion>({
@@ -97,13 +112,17 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
   const lanesRawRef = useRef<LaneState>(DEFAULT_LANES)
   const lanesRef = useRef<LaneState>(DEFAULT_LANES)
   const curbsRef = useRef<CurbState>(DEFAULT_CURBS)
+  const extrasRef = useRef<SceneExtras>({ ...DEFAULT_EXTRAS })
+  const zebraSmoothRef = useRef<{ z: number; width: number; opacity: number } | null>(null)
   const speedSignRef = useRef<SpeedLimitSignState | null>(null)
+  const speedDetRef = useRef<import('../vision/speedLimit').SpeedLimitDetection | null>(null)
   const speedRef = useRef(0)
   const rafRef = useRef(0)
   const lastInferRef = useRef(0)
   const lastLaneRef = useRef(0)
   const lastCurbRef = useRef(0)
   const lastLimitRef = useRef(0)
+  const lastUrbanRef = useRef(0)
   const lastMotionTs = useRef(0)
   const frameTimesRef = useRef<number[]>([])
   const lastPublishRef = useRef(0)
@@ -156,7 +175,6 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
         lastLaneRef.current = now
         lanesRawRef.current = laneDetRef.current.detect(video)
       }
-      // Always animate toward latest raw layout (smooth merges)
       lanesRef.current = laneAnimRef.current.update(lanesRawRef.current, dt)
 
       if (now - lastCurbRef.current >= CURB_INTERVAL_MS) {
@@ -164,9 +182,42 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
         curbsRef.current = curbDetRef.current.detect(video)
       }
 
+      if (now - lastUrbanRef.current >= URBAN_INTERVAL_MS) {
+        lastUrbanRef.current = now
+        const buildings = detectUrbanSurroundings(video)
+        const zebraHit = detectZebraCrossing(video)
+        if (zebraHit && zebraHit.confidence > 0.55) {
+          const prev = zebraSmoothRef.current
+          zebraSmoothRef.current = {
+            z: prev ? prev.z * 0.7 + zebraHit.z * 0.3 : zebraHit.z,
+            width: prev ? prev.width * 0.75 + zebraHit.width * 0.25 : zebraHit.width,
+            opacity: Math.min(1, (prev?.opacity ?? 0) + 0.2),
+          }
+        } else if (zebraSmoothRef.current) {
+          zebraSmoothRef.current.opacity = Math.max(0, zebraSmoothRef.current.opacity - 0.08)
+          if (zebraSmoothRef.current.opacity < 0.05) zebraSmoothRef.current = null
+        }
+        extrasRef.current = {
+          buildings,
+          zebra: zebraSmoothRef.current,
+          urban: buildings.length > 0,
+        }
+      }
+
+      if (zebraSmoothRef.current && speedMps > 0.8) {
+        zebraSmoothRef.current.z = Math.max(6, zebraSmoothRef.current.z - speedMps * dt)
+        if (zebraSmoothRef.current.z < 8) {
+          zebraSmoothRef.current.opacity = Math.min(
+            zebraSmoothRef.current.opacity,
+            Math.max(0, (zebraSmoothRef.current.z - 5) / 3),
+          )
+        }
+      }
+
       if (now - lastLimitRef.current >= LIMIT_INTERVAL_MS) {
         lastLimitRef.current = now
         const det = limitDetRef.current.detect(video)
+        speedDetRef.current = det
         setSpeedLimit(det?.value ?? null)
 
         if (det) {
@@ -223,21 +274,27 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
         const lane = lanesRef.current
 
         for (const det of tracked) {
-          let z = estimateDepthMeters(det.className, det.box.height)
+          let z = estimateDepthMeters(
+            det.className,
+            det.box.height,
+            det.box.y + det.box.height,
+          )
           let x = estimateLateralMeters(det.box.x + det.box.width / 2, z)
 
-          // Only drop detections that sit inside the ego car mesh itself
-          // (was too aggressive before and hid people standing ahead).
           const insideEgo = Math.abs(x) < 1.0 && z < 1.8
           if (insideEgo) continue
 
-          // Keep close people/objects just ahead of the bumper, not inside the model.
           if (z < 2.5) {
             z = 2.5
             x = estimateLateralMeters(det.box.x + det.box.width / 2, z)
           }
 
           const existing = map.get(det.id)
+
+          if (existing) {
+            x = existing.x * 0.55 + x * 0.45
+            z = existing.z * 0.55 + z * 0.45
+          }
 
           let approachRate = 0
           if (existing) {
@@ -246,10 +303,22 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
           }
 
           const isVehicle = VEHICLE_CLASSES.has(det.className)
-          const leftOfDivider = lane.dividerX != null && x < lane.dividerX - 0.5
-          const farLeft = x < -lane.egoLaneHalfWidth - 1.2
+          const side = lane.oncomingSide
+          const acrossDivider =
+            lane.dividerX != null &&
+            (side > 0 ? x > lane.dividerX + 0.4 : x < lane.dividerX - 0.4)
+          const farOncoming =
+            side > 0
+              ? x > lane.egoLaneHalfWidth + 1.4
+              : x < -lane.egoLaneHalfWidth - 1.2
           const closingFast = approachRate < -1.5 && z < 45
-          const oncoming = isVehicle && (leftOfDivider || (farLeft && closingFast) || (x < -2.5 && closingFast))
+          const oncoming =
+            isVehicle && (acrossDivider || (farOncoming && closingFast) || (farOncoming && z < 35))
+
+          let signal = existing?.signal
+          if (det.className === 'traffic light') {
+            signal = sampleTrafficLightSignal(video, det.box)
+          }
 
           if (existing) {
             existing.x = x
@@ -260,6 +329,7 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
             existing.opacity = 1
             existing.approachRate = approachRate
             existing.oncoming = oncoming
+            if (signal) existing.signal = signal
           } else {
             map.set(det.id, {
               id: det.id,
@@ -273,6 +343,7 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
               lastSeen: now,
               oncoming,
               approachRate,
+              signal,
             })
           }
         }
@@ -315,6 +386,11 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
           left: curbsRef.current.left.map((p) => ({ ...p })),
           right: curbsRef.current.right.map((p) => ({ ...p })),
         })
+        setExtras({
+          urban: extrasRef.current.urban,
+          buildings: extrasRef.current.buildings.map((b) => ({ ...b })),
+          zebra: extrasRef.current.zebra ? { ...extrasRef.current.zebra } : null,
+        })
         const mph = speedRef.current * 2.23694
         setMotion({
           speedMps: speedRef.current,
@@ -333,6 +409,19 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
           oncomingLanes: lanesRef.current.oncomingLanes,
           hasYellow: peaks.hasYellow,
           vpX: peaks.vpX,
+          speedLimit: speedDetRef.current?.locked
+            ? {
+                value: speedDetRef.current.value,
+                box: { ...speedDetRef.current.box },
+                locked: true,
+              }
+            : speedDetRef.current
+              ? {
+                  value: speedDetRef.current.value,
+                  box: { ...speedDetRef.current.box },
+                  locked: false,
+                }
+              : null,
         })
         setSpeedSign(speedSignRef.current ? { ...speedSignRef.current } : null)
       }
@@ -350,6 +439,7 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
     objects,
     lanes,
     curbs,
+    extras,
     motion,
     stats,
     overlay,

@@ -32,6 +32,8 @@ export interface WorldObject {
   oncoming: boolean
   /** Recent depth change (m/s); negative means closing. */
   approachRate: number
+  /** For traffic lights: which lamp is lit. */
+  signal?: 'red' | 'amber' | 'green' | 'off'
 }
 
 export interface LaneMark {
@@ -45,19 +47,39 @@ export interface LaneMark {
   kind: LaneMarkKind
   /** 0–1 fade while a mark is merging away. */
   opacity?: number
+  /** Polyline in ego frame: +z forward (m), x lateral (m). Ordered near→far. */
+  poly?: { z: number; x: number }[]
 }
 
 export interface LaneState {
   /** Number of same-direction lanes detected (1–4). */
   sameDirectionLanes: number
-  /** Opposing-direction lanes left of the divider (0 if none). */
+  /** Opposing-direction lanes (0 if none). */
   oncomingLanes: number
+  /** -1 = oncoming on left (US), +1 = oncoming on right (UK). */
+  oncomingSide: -1 | 1
   /** Detected marks sorted left→right in meters. */
   marks: LaneMark[]
   /** Ego lane half-width for blue path carpet. */
   egoLaneHalfWidth: number
-  /** X of opposing divider (double yellow), if any. */
+  /** X of opposing divider, if any. */
   dividerX: number | null
+}
+
+/** Urban scene extras inferred from the camera. */
+export interface SceneExtras {
+  /** Crosswalk strips ahead of ego, if detected. */
+  zebra: { z: number; width: number; opacity: number } | null
+  /** Soft building facade blocks (Tesla-style massing). */
+  buildings: Array<{
+    side: -1 | 1
+    x: number
+    z: number
+    width: number
+    height: number
+    depth: number
+  }>
+  urban: boolean
 }
 
 export interface EgoMotion {
@@ -121,4 +143,10 @@ export interface PerceptionOverlay {
   hasYellow: boolean
   /** Estimated vanishing-point x (handles tilted / off-center camera). */
   vpX?: number
+  /** Locked EU/US speed-limit bbox in image space, if any. */
+  speedLimit?: {
+    value: number
+    box: { x: number; y: number; width: number; height: number }
+    locked: boolean
+  } | null
 }

@@ -5,8 +5,11 @@ interface Track {
   className: Detection['className']
   score: number
   box: Detection['box']
+  /** EMA-smoothed box for stable world placement */
+  smoothBox: Detection['box']
   hits: number
   misses: number
+  classHits: number
 }
 
 function iou(a: Detection['box'], b: Detection['box']): number {
@@ -25,9 +28,21 @@ function iou(a: Detection['box'], b: Detection['box']): number {
   return union > 0 ? inter / union : 0
 }
 
+function lerpBox(
+  a: Detection['box'],
+  b: Detection['box'],
+  t: number,
+): Detection['box'] {
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    width: a.width + (b.width - a.width) * t,
+    height: a.height + (b.height - a.height) * t,
+  }
+}
+
 /**
- * IoU tracker that only emits confirmed tracks (minHits),
- * so one-frame glare flashes never spawn world objects.
+ * IoU tracker with confirmation + EMA box smoothing to cut flicker.
  */
 export class IoUTracker {
   private nextId = 1
@@ -35,25 +50,34 @@ export class IoUTracker {
   private readonly iouThreshold: number
   private readonly maxMisses: number
   private readonly minHits: number
+  private readonly smooth: number
 
-  constructor(iouThreshold = 0.28, maxMisses = 4, minHits = 3) {
+  constructor(iouThreshold = 0.3, maxMisses = 5, minHits = 3, smooth = 0.35) {
     this.iouThreshold = iouThreshold
     this.maxMisses = maxMisses
     this.minHits = minHits
+    this.smooth = smooth
   }
 
   update(detections: Detection[]): Array<Detection & { id: number }> {
     const assigned = new Set<number>()
     const matched: Array<Detection & { id: number }> = []
 
+    // Prefer high-score dets when matching
+    const order = detections
+      .map((d, i) => ({ d, i }))
+      .sort((a, b) => b.d.score - a.d.score)
+
     for (const track of this.tracks) {
       let bestIdx = -1
       let bestIou = this.iouThreshold
-      for (let i = 0; i < detections.length; i++) {
+      for (const { d, i } of order) {
         if (assigned.has(i)) continue
-        if (detections[i].className !== track.className) continue
-        const score = iou(track.box, detections[i].box)
-        if (score > bestIou) {
+        // Allow brief class flicker only if IoU is very high
+        const sameClass = d.className === track.className
+        const score = iou(track.smoothBox, d.box)
+        const need = sameClass ? bestIou : Math.max(bestIou, 0.55)
+        if (score > need) {
           bestIou = score
           bestIdx = i
         }
@@ -63,14 +87,37 @@ export class IoUTracker {
         const det = detections[bestIdx]
         assigned.add(bestIdx)
         track.box = det.box
-        track.score = det.score
+        track.smoothBox = lerpBox(track.smoothBox, det.box, this.smooth)
+        track.score = track.score * 0.6 + det.score * 0.4
         track.hits += 1
         track.misses = 0
-        if (track.hits >= this.minHits) {
-          matched.push({ ...det, id: track.id })
+
+        if (det.className === track.className) {
+          track.classHits += 1
+        } else if (det.score > track.score + 0.12 && bestIou > 0.55) {
+          track.className = det.className
+          track.classHits = 1
+        }
+
+        if (track.hits >= this.minHitsFor(track.className)) {
+          matched.push({
+            className: track.className,
+            score: track.score,
+            box: { ...track.smoothBox },
+            id: track.id,
+          })
         }
       } else {
         track.misses += 1
+        // Coast: keep last smooth box, still emit briefly so world doesn't pop
+        if (track.hits >= this.minHitsFor(track.className) && track.misses <= 2) {
+          matched.push({
+            className: track.className,
+            score: track.score * 0.9,
+            box: { ...track.smoothBox },
+            id: track.id,
+          })
+        }
       }
     }
 
@@ -79,19 +126,26 @@ export class IoUTracker {
     for (let i = 0; i < detections.length; i++) {
       if (assigned.has(i)) continue
       const det = detections[i]
+      if (det.score < 0.4) continue
       const id = this.nextId++
       this.tracks.push({
         id,
         className: det.className,
         score: det.score,
         box: det.box,
+        smoothBox: { ...det.box },
         hits: 1,
         misses: 0,
+        classHits: 1,
       })
-      // Not emitted until confirmed over multiple frames
     }
 
     return matched
+  }
+
+  private minHitsFor(className: string): number {
+    if (className === 'person' || className === 'traffic light') return 4
+    return this.minHits
   }
 
   reset() {

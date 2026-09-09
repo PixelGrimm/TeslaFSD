@@ -13,7 +13,7 @@ export default function App() {
   const [starting, setStarting] = useState(false)
   const [showPip, setShowPip] = useState(true)
 
-  const { objects, lanes, curbs, motion, overlay, speedLimit, speedSign, modelReady, modelError } =
+  const { objects, lanes, curbs, extras, motion, overlay, speedLimit, speedSign, modelReady, modelError } =
     useWorldState(videoRef, started && cameraReady)
 
   const requestWakeLock = useCallback(async () => {
@@ -96,6 +96,7 @@ export default function App() {
             curbs={curbs}
             motion={motion}
             speedSign={speedSign}
+            extras={extras}
           />
         </DashboardShell>
       )}

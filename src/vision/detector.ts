@@ -22,7 +22,7 @@ const MIN_SCORE: Record<string, number> = {
   bus: 0.4,
   motorcycle: 0.45,
   person: 0.58,
-  'traffic light': 0.55,
+  'traffic light': 0.38,
   'stop sign': 0.5,
 }
 
@@ -138,9 +138,10 @@ function passesGeometry(
   }
 
   if (name === 'traffic light') {
-    // Real lights are small; huge boxes are glare / signs
-    if (box.height > 0.22 || box.width > 0.12) return false
-    if (box.y > 0.55) return false // lights aren't on the road surface
+    // Allow mid-distance urban heads (pole + signal facing ego)
+    if (box.height > 0.42 || box.width > 0.22) return false
+    if (box.y > 0.72) return false
+    if (box.height < 0.035 && box.width < 0.03) return false
   }
 
   if (name === 'stop sign') {

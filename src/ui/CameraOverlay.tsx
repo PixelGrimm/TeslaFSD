@@ -99,9 +99,14 @@ export function CameraOverlay({ videoRef, overlay, motion, visible }: CameraOver
           ctx.lineDashOffset = 0
         }
 
+        // Quadratic bend toward vanishing point (road curve / perspective)
+        const midY = y1 * 0.55 + vanishY * 0.45
+        const linearMid = xBot + (xTop - xBot) * 0.45
+        const ctrlX = linearMid + (vanishX - linearMid) * 0.22
+
         ctx.beginPath()
         ctx.moveTo(xBot, y1)
-        ctx.lineTo(xTop, vanishY)
+        ctx.quadraticCurveTo(ctrlX, midY, xTop, vanishY)
         ctx.stroke()
         ctx.setLineDash([])
         ctx.lineDashOffset = 0
@@ -136,6 +141,36 @@ export function CameraOverlay({ videoRef, overlay, motion, visible }: CameraOver
         ctx.fillText(label, bx + 4, ly + 10)
       }
 
+      // Locked / candidate speed-limit sign
+      if (data.speedLimit) {
+        const sl = data.speedLimit
+        const bx = sl.box.x * w
+        const by = sl.box.y * h
+        const bw = Math.max(14, sl.box.width * w)
+        const bh = Math.max(14, sl.box.height * h)
+        const cx = bx + bw / 2
+        const cy = by + bh / 2
+        const r = Math.max(bw, bh) * 0.55
+        ctx.beginPath()
+        ctx.arc(cx, cy, r, 0, Math.PI * 2)
+        ctx.strokeStyle = sl.locked ? '#e30613' : 'rgba(227,6,19,0.55)'
+        ctx.lineWidth = sl.locked ? 3 : 2
+        ctx.stroke()
+        if (sl.locked) {
+          ctx.beginPath()
+          ctx.arc(cx, cy, r * 0.72, 0, Math.PI * 2)
+          ctx.fillStyle = 'rgba(255,255,255,0.88)'
+          ctx.fill()
+          ctx.fillStyle = '#111'
+          ctx.font = `700 ${Math.max(10, r * 0.7)}px "DM Sans", system-ui, sans-serif`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(String(sl.value), cx, cy + 1)
+          ctx.textAlign = 'start'
+          ctx.textBaseline = 'alphabetic'
+        }
+      }
+
       const hud = [
         `lanes ${data.sameLanes}`,
         data.hasYellow
@@ -143,6 +178,7 @@ export function CameraOverlay({ videoRef, overlay, motion, visible }: CameraOver
             ? `yellow+oncoming ${data.oncomingLanes}`
             : 'yellow edge'
           : null,
+        data.speedLimit?.locked ? `limit ${data.speedLimit.value}` : null,
         mot.moving ? `${mot.speedMph} mph` : 'stopped',
         `objs ${data.detections.length}`,
       ]

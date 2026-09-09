@@ -96,6 +96,23 @@ function LaneMarkMesh({
   const opacity = mark.opacity ?? 1
   const color =
     mark.kind === 'double_yellow' || mark.kind === 'solid_yellow' ? '#f0c93a' : '#ffffff'
+  const poly = mark.poly && mark.poly.length >= 2 ? mark.poly : null
+
+  if (poly) {
+    if (mark.kind === 'dashed_white') {
+      return <PolyDashes poly={poly} color={color} opacity={opacity} />
+    }
+    if (mark.kind === 'double_yellow') {
+      return (
+        <group>
+          {[-0.11, 0.11].map((dx) => (
+            <PolyStrip key={dx} poly={offsetPoly(poly, dx)} width={0.11} color={color} opacity={opacity} />
+          ))}
+        </group>
+      )
+    }
+    return <PolyStrip poly={poly} width={0.14} color={color} opacity={opacity} />
+  }
 
   if (mark.kind === 'dashed_white') {
     const segs: { z: number; x: number }[] = []
@@ -146,6 +163,117 @@ function LaneMarkMesh({
       opacity={opacity}
     />
   )
+}
+
+function offsetPoly(poly: { z: number; x: number }[], dx: number) {
+  return poly.map((p) => ({ z: p.z, x: p.x + dx }))
+}
+
+/** Continuous strip segments along ego-frame poly (z forward → Three −z). */
+function PolyStrip({
+  poly,
+  width,
+  color,
+  opacity,
+}: {
+  poly: { z: number; x: number }[]
+  width: number
+  color: string
+  opacity: number
+}) {
+  const segs: { midX: number; midZ: number; len: number; yaw: number }[] = []
+  for (let i = 0; i < poly.length - 1; i++) {
+    const a = poly[i]
+    const b = poly[i + 1]
+    const zA = -a.z
+    const zB = -b.z
+    const dx = b.x - a.x
+    const dz = zB - zA
+    const len = Math.hypot(dx, dz)
+    if (len < 0.05) continue
+    segs.push({
+      midX: (a.x + b.x) / 2,
+      midZ: (zA + zB) / 2,
+      len,
+      yaw: Math.atan2(dx, dz),
+    })
+  }
+  return (
+    <group>
+      {segs.map((s, i) => (
+        <mesh key={i} position={[s.midX, 0.045, s.midZ]} rotation={[0, -s.yaw, 0]}>
+          <boxGeometry args={[width, 0.025, s.len]} />
+          <meshBasicMaterial color={color} transparent opacity={opacity} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+/** Dashes placed along polyline arc length. */
+function PolyDashes({
+  poly,
+  color,
+  opacity,
+}: {
+  poly: { z: number; x: number }[]
+  color: string
+  opacity: number
+}) {
+  const dashLen = 2.8
+  const gap = 5.2
+  const period = dashLen + gap
+  const pts = poly.map((p) => ({ x: p.x, z: -p.z }))
+
+  // Arc-length table
+  const cum: number[] = [0]
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z)
+    cum.push(cum[i - 1] + d)
+  }
+  const total = cum[cum.length - 1]
+  if (total < 0.5) return null
+
+  const segs: { x: number; z: number; yaw: number }[] = []
+  for (let s = 0; s < total; s += period) {
+    const mid = s + dashLen * 0.5
+    if (mid > total) break
+    const p = pointAtArc(pts, cum, mid)
+    const p2 = pointAtArc(pts, cum, Math.min(total, mid + 0.35))
+    const yaw = Math.atan2(p2.x - p.x, p2.z - p.z)
+    segs.push({ x: p.x, z: p.z, yaw })
+  }
+
+  return (
+    <group>
+      {segs.map((s, i) => (
+        <mesh key={i} position={[s.x, 0.05, s.z]} rotation={[0, -s.yaw, 0]}>
+          <boxGeometry args={[0.13, 0.025, dashLen]} />
+          <meshBasicMaterial color={color} transparent opacity={opacity} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+function pointAtArc(
+  pts: { x: number; z: number }[],
+  cum: number[],
+  s: number,
+): { x: number; z: number } {
+  if (s <= 0) return pts[0]
+  if (s >= cum[cum.length - 1]) return pts[pts.length - 1]
+  for (let i = 0; i < cum.length - 1; i++) {
+    if (s >= cum[i] && s <= cum[i + 1]) {
+      const span = Math.max(1e-6, cum[i + 1] - cum[i])
+      const t = (s - cum[i]) / span
+      return {
+        x: pts[i].x + (pts[i + 1].x - pts[i].x) * t,
+        z: pts[i].z + (pts[i + 1].z - pts[i].z) * t,
+      }
+    }
+  }
+  return pts[pts.length - 1]
 }
 
 /** Solid strip that can taper in X from near → far (lane merge). */

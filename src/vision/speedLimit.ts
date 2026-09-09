@@ -4,10 +4,15 @@ export interface SpeedLimitDetection {
   value: number
   /** Normalized bbox center x in image [0,1]. */
   imageX: number
+  imageY: number
   /** Normalized bbox height (proxy for distance). */
   imageH: number
+  imageW: number
+  /** Normalized bbox for PiP lock overlay. */
+  box: { x: number; y: number; width: number; height: number }
   /** -1 left side of frame, +1 right. */
   side: -1 | 1
+  locked: boolean
 }
 
 /**
@@ -59,22 +64,41 @@ export class SpeedLimitDetector {
       }
     }
 
-    if (best != null && best.score > 0.42) {
-      const cx = (best.box.x + best.box.w / 2) / this.w
+    if (best != null && best.score > 0.4) {
+      const box = {
+        x: best.box.x / this.w,
+        y: best.box.y / this.h,
+        width: best.box.w / this.w,
+        height: best.box.h / this.h,
+      }
+      const cx = box.x + box.width / 2
+      const cy = box.y + box.height / 2
       const det: SpeedLimitDetection = {
         value: best.value,
         imageX: cx,
-        imageH: best.box.h / this.h,
+        imageY: cy,
+        imageH: box.height,
+        imageW: box.width,
+        box,
         side: cx < 0.5 ? -1 : 1,
+        locked: false,
       }
       if (best.value === this.value && this.lastDet) {
-        this.hits = Math.min(12, this.hits + 1)
-        // Smooth image position
+        this.hits = Math.min(16, this.hits + 1)
         this.lastDet = {
           ...det,
-          imageX: this.lastDet.imageX * 0.7 + det.imageX * 0.3,
-          imageH: this.lastDet.imageH * 0.7 + det.imageH * 0.3,
+          imageX: this.lastDet.imageX * 0.65 + det.imageX * 0.35,
+          imageY: this.lastDet.imageY * 0.65 + det.imageY * 0.35,
+          imageH: this.lastDet.imageH * 0.65 + det.imageH * 0.35,
+          imageW: this.lastDet.imageW * 0.65 + det.imageW * 0.35,
+          box: {
+            x: this.lastDet.box.x * 0.65 + det.box.x * 0.35,
+            y: this.lastDet.box.y * 0.65 + det.box.y * 0.35,
+            width: this.lastDet.box.width * 0.65 + det.box.width * 0.35,
+            height: this.lastDet.box.height * 0.65 + det.box.height * 0.35,
+          },
           side: det.imageX < 0.48 ? -1 : det.imageX > 0.52 ? 1 : this.lastDet.side,
+          locked: this.hits >= 3,
         }
       } else {
         this.hits = 1
@@ -84,13 +108,19 @@ export class SpeedLimitDetector {
       this.miss = 0
     } else {
       this.miss++
-      if (this.miss > 18) {
+      if (this.miss > 22) {
         this.value = null
         this.lastDet = null
         this.hits = 0
+      } else if (this.lastDet && this.hits >= 3) {
+        // Hold lock briefly through miss frames
+        this.lastDet = { ...this.lastDet, locked: true }
       }
     }
 
+    if (this.hits >= 3 && this.lastDet) {
+      return { ...this.lastDet, locked: true }
+    }
     return this.hits >= 2 ? this.lastDet : null
   }
 }
