@@ -8,7 +8,6 @@ import { EgoMotionEstimator } from '../vision/motion'
 import { SpeedLimitDetector } from '../vision/speedLimit'
 import { sampleTrafficLightSignal } from '../vision/trafficLight'
 import { IoUTracker } from '../vision/tracker'
-import { detectUrbanSurroundings } from '../vision/urban'
 import { detectZebraCrossing } from '../vision/zebra'
 import type {
   EgoMotion,
@@ -182,23 +181,28 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
 
       if (now - lastUrbanRef.current >= URBAN_INTERVAL_MS) {
         lastUrbanRef.current = now
-        const buildings = detectUrbanSurroundings(video)
         const zebraHit = detectZebraCrossing(video)
-        if (zebraHit && zebraHit.confidence > 0.42) {
+        // Require strong, sustained evidence — fade out quickly otherwise
+        if (zebraHit && zebraHit.confidence >= 0.65) {
           const prev = zebraSmoothRef.current
+          const nextOp = Math.min(1, (prev?.opacity ?? 0) + 0.35)
+          // Only show in 3D once opacity has built up (≈2 strong hits)
           zebraSmoothRef.current = {
-            z: prev ? prev.z * 0.7 + zebraHit.z * 0.3 : zebraHit.z,
-            width: prev ? prev.width * 0.75 + zebraHit.width * 0.25 : zebraHit.width,
-            opacity: Math.min(1, (prev?.opacity ?? 0) + 0.2),
+            z: prev ? prev.z * 0.65 + zebraHit.z * 0.35 : zebraHit.z,
+            width: prev ? prev.width * 0.7 + zebraHit.width * 0.3 : zebraHit.width,
+            opacity: nextOp,
           }
         } else if (zebraSmoothRef.current) {
-          zebraSmoothRef.current.opacity = Math.max(0, zebraSmoothRef.current.opacity - 0.08)
-          if (zebraSmoothRef.current.opacity < 0.05) zebraSmoothRef.current = null
+          zebraSmoothRef.current.opacity = Math.max(0, zebraSmoothRef.current.opacity - 0.28)
+          if (zebraSmoothRef.current.opacity < 0.35) zebraSmoothRef.current = null
         }
         extrasRef.current = {
-          buildings,
-          zebra: zebraSmoothRef.current,
-          urban: buildings.length > 0,
+          buildings: [],
+          zebra:
+            zebraSmoothRef.current && zebraSmoothRef.current.opacity >= 0.55
+              ? { ...zebraSmoothRef.current }
+              : null,
+          urban: false,
         }
       }
 

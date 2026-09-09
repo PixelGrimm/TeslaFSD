@@ -6,7 +6,7 @@ import { DetectedObject } from './DetectedObject'
 import { EgoCar } from './EgoCar'
 import { Road } from './Road'
 import { SpeedLimitSign } from './SpeedLimitSign'
-import { UrbanSurroundings, ZebraCrossing } from './UrbanSurroundings'
+import { ZebraCrossing } from './UrbanSurroundings'
 
 interface FsdSceneProps {
   objects: WorldObject[]
@@ -39,7 +39,6 @@ function SceneContent({ objects, lanes, curbs, motion, speedSign, extras }: FsdS
       />
       <hemisphereLight args={['#f2f4f7', '#b8bcc4', 0.55]} />
 
-      <UrbanSurroundings extras={extras} />
       <Road lanes={lanes} motion={motion} curbs={curbs} />
       {extras.zebra && (
         <ZebraCrossing zebra={extras.zebra} roadHalfWidth={roadHalf} />
