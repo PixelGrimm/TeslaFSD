@@ -216,9 +216,8 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
         lastLimitRef.current = now
         const det = limitDetRef.current.detect(video)
         speedDetRef.current = det
-        // HUD keeps last confirmed limit until a different sign is read
-        const hud = limitDetRef.current.getHudValue()
-        if (hud != null) setSpeedLimit(hud)
+        // Reflect detector HUD (may clear weak false locks)
+        setSpeedLimit(limitDetRef.current.getHudValue())
 
         if (det) {
           const markXs = lanesRef.current.marks.map((m) => m.x)

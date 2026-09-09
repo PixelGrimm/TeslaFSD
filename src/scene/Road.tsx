@@ -191,11 +191,14 @@ function PolyStrip({
     const dz = zB - zA
     const len = Math.hypot(dx, dz)
     if (len < 0.05) continue
+    // Reject nearly sideways segments (broken vision polys)
+    const yaw = Math.atan2(dx, dz)
+    if (Math.abs(yaw) > 0.55) continue
     segs.push({
       midX: (a.x + b.x) / 2,
       midZ: (zA + zB) / 2,
       len,
-      yaw: Math.atan2(dx, dz),
+      yaw,
     })
   }
   return (

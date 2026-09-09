@@ -62,24 +62,42 @@ export class SpeedLimitDetector {
     const candidates = findRedCircles(data, this.w, this.h)
 
     for (const c of candidates) {
-      // Whole-sign template first (more reliable for 20/30/40)
+      if (!looksLikeSpeedDisc(data, this.w, this.h, c)) continue
+      if (looksLikeNoEntry(data, this.w, c)) continue
+      const cyN = (c.y + c.h / 2) / this.h
+      const cxN = (c.x + c.w / 2) / this.w
+      // Pole-mounted signs — reject blobs sitting on the carriageway
+      if (cyN > 0.62) continue
+      if (c.h < this.h * 0.04 || c.h > this.h * 0.35) continue
+
+      const digits = readDigitsInBox(this.ctx, c, this.digitTemplates)
+      if (!digits || digits.score < 0.42 || !LIMITS.includes(digits.value)) continue
+
       const whole = matchWholeSign(this.ctx, c, this.wholeTemplates)
-      if (whole && whole.score > (bestNumeric?.score ?? 0)) {
-        bestNumeric = { value: whole.value, score: whole.score, box: c }
+      let score = digits.score
+      if (whole && whole.value === digits.value && whole.score >= 0.5) {
+        score = Math.min(1, digits.score * 0.55 + whole.score * 0.45 + 0.08)
+      } else if (whole && whole.value !== digits.value) {
+        if (digits.score < 0.55) continue
+        score = digits.score * 0.85
       }
-      const reading = readDigitsInBox(this.ctx, c, this.digitTemplates)
-      if (reading && LIMITS.includes(reading.value) && reading.score > (bestNumeric?.score ?? 0)) {
-        bestNumeric = { value: reading.value, score: reading.score, box: c }
+      // Prefer roadside; penalise centre-of-road false locks
+      score += Math.abs(cxN - 0.5) > 0.18 ? 0.06 : -0.05
+
+      if (score > (bestNumeric?.score ?? 0)) {
+        bestNumeric = { value: digits.value, score, box: c }
       }
     }
 
     let best: { value: SpeedLimitValue; score: number; box: Box } | null = null
-    if (bestNumeric != null && bestNumeric.score >= 0.28) {
+    if (bestNumeric != null && bestNumeric.score >= 0.48) {
       best = bestNumeric
     } else {
       const national = findNationalLimitSigns(data, this.w, this.h)
       for (const c of national) {
-        if (c.score >= 0.7 && c.score > (best?.score ?? 0)) {
+        const cyN = (c.box.y + c.box.h / 2) / this.h
+        if (cyN > 0.6) continue
+        if (c.score >= 0.78 && c.score > (best?.score ?? 0)) {
           best = { value: 'national', score: c.score, box: c.box }
         }
       }
@@ -92,8 +110,8 @@ export class SpeedLimitDetector {
         this.pendingHits = 1
       }
 
-      // Need 2 agreeing frames before accepting a new reading
-      if (this.pendingHits >= 2 || (best.value === this.value && this.hits >= 1)) {
+      // 3 agreeing frames before lock — kills single-frame false "60"s
+      if (this.pendingHits >= 3 || (best.value === this.value && this.hits >= 2)) {
         const box = {
           x: best.box.x / this.w,
           y: best.box.y / this.h,
@@ -131,7 +149,7 @@ export class SpeedLimitDetector {
             locked: true,
           }
         } else {
-          this.hits = 2
+          this.hits = 3
           this.value = best.value
           this.lastDet = det
         }
@@ -142,16 +160,22 @@ export class SpeedLimitDetector {
       this.pendingHits = Math.max(0, this.pendingHits - 1)
       if (this.pendingHits === 0) this.pendingValue = null
       this.miss++
-      if (this.miss > 50) {
+      // Weak / false locks clear quickly; strong locks persist
+      if (this.miss > 16 && this.hits < 6) {
         this.lastDet = null
         this.hits = 0
         this.value = null
-      } else if (this.lastDet && this.hits >= 2) {
+        this.hudValue = null
+      } else if (this.miss > 60) {
+        this.lastDet = null
+        this.hits = 0
+        this.value = null
+      } else if (this.lastDet && this.hits >= 3) {
         this.lastDet = { ...this.lastDet, locked: true }
       }
     }
 
-    if (this.hits >= 2 && this.lastDet) return { ...this.lastDet, locked: true }
+    if (this.hits >= 3 && this.lastDet) return { ...this.lastDet, locked: true }
     return null
   }
 }
@@ -161,6 +185,62 @@ interface Box {
   y: number
   w: number
   h: number
+}
+
+/** Red annular ring + bright interior (true EU numeric disc). */
+function looksLikeSpeedDisc(
+  data: Uint8ClampedArray,
+  w: number,
+  _h: number,
+  box: Box,
+): boolean {
+  const cx = box.x + box.w / 2
+  const cy = box.y + box.h / 2
+  const rad = Math.min(box.w, box.h) / 2
+  let ringRed = 0
+  let ringN = 0
+  let coreBright = 0
+  let coreN = 0
+  for (let a = 0; a < 40; a++) {
+    const ang = (a / 40) * Math.PI * 2
+    for (const t of [0.82, 0.92]) {
+      const px = Math.round(cx + Math.cos(ang) * rad * t)
+      const py = Math.round(cy + Math.sin(ang) * rad * t)
+      if (px < 0 || py < 0 || px >= w || py >= data.length / (w * 4)) continue
+      const i = (py * w + px) * 4
+      ringN++
+      if (data[i] > 120 && data[i] > data[i + 1] + 25 && data[i] > data[i + 2] + 25) ringRed++
+    }
+    const ix = Math.round(cx + Math.cos(ang) * rad * 0.35)
+    const iy = Math.round(cy + Math.sin(ang) * rad * 0.35)
+    if (ix < 0 || iy < 0 || ix >= w) continue
+    const i = (iy * w + ix) * 4
+    coreN++
+    if ((data[i] + data[i + 1] + data[i + 2]) / 3 > 150) coreBright++
+  }
+  if (!ringN || !coreN) return false
+  return ringRed / ringN >= 0.35 && coreBright / coreN >= 0.35
+}
+
+/** UK No Entry: horizontal bar across a red disc — not a speed limit. */
+function looksLikeNoEntry(data: Uint8ClampedArray, w: number, box: Box): boolean {
+  const x0 = Math.floor(box.x + box.w * 0.2)
+  const x1 = Math.floor(box.x + box.w * 0.8)
+  const yMid = Math.floor(box.y + box.h * 0.5)
+  const yBand = Math.max(1, Math.floor(box.h * 0.08))
+  let darkMid = 0
+  let n = 0
+  for (let y = yMid - yBand; y <= yMid + yBand; y++) {
+    for (let x = x0; x <= x1; x += 2) {
+      const i = (y * w + x) * 4
+      if (i < 0 || i + 2 >= data.length) continue
+      n++
+      if ((data[i] + data[i + 1] + data[i + 2]) / 3 < 120) darkMid++
+    }
+  }
+  if (!n) return false
+  // Continuous horizontal bar fills much of the mid band
+  return darkMid / n > 0.55
 }
 
 function findNationalLimitSigns(
@@ -462,7 +542,7 @@ function matchWholeSign(
       bestV = value
     }
   }
-  return bestS >= 0.36 ? { value: bestV, score: bestS } : null
+  return bestS >= 0.52 ? { value: bestV, score: bestS } : null
 }
 
 function readDigitsInBox(
@@ -542,18 +622,31 @@ function splitAndMatch(
   }
   if (inside && w - start >= 2) segments.push({ x0: start, x1: w })
   if (segments.length < 1 || segments.length > 3) return null
+  // Multi-digit limits (20, 30, 60…) must split into ≥2 ink columns
+  // (stops No Entry bar / single blob from becoming "60")
+  if (segments.length === 1) {
+    const only = Number(
+      (() => {
+        const digitImg = cropInk(ink, w, h, segments[0].x0, segments[0].x1)
+        const match = matchDigit(digitImg, templates)
+        return match && match.score >= 0.45 ? match.digit : ''
+      })(),
+    )
+    if (![5].includes(only)) return null
+  }
 
   let text = ''
   let scoreSum = 0
   for (const seg of segments) {
     const digitImg = cropInk(ink, w, h, seg.x0, seg.x1)
     const match = matchDigit(digitImg, templates)
-    if (!match || match.score < 0.25) return null
+    if (!match || match.score < 0.38) return null
     text += match.digit
     scoreSum += match.score
   }
   const value = Number(text)
   if (!Number.isFinite(value) || !LIMITS.includes(value)) return null
+  if (value >= 10 && segments.length < 2) return null
   return { value, score: scoreSum / segments.length }
 }
 

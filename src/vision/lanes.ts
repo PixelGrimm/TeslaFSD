@@ -299,7 +299,9 @@ export class LaneDetector {
       this.h,
     )
     this.visionPolys = polys
-    this.roadCurve = this.roadCurve * 0.72 + curve * 0.28
+    // Heavy damp + clamp so curve never yanks marks around
+    const nextCurve = clamp(curve, -3, 3)
+    this.roadCurve = this.roadCurve * 0.9 + nextCurve * 0.1
 
     this.lastOverlayLines = buildOverlayLines(
       this.smoothWhite,
@@ -387,7 +389,17 @@ export class LaneLayoutAnimator {
       this.oncomingLanes = target.oncomingLanes
       this.oncomingSide = target.oncomingSide
       this.dividerX = target.dividerX
-      this.marks = lerpMarks(this.marks, target.marks, Math.min(1, dt * 4))
+      // Slow lerp + rebuild clean polys (never carry jagged vision chains)
+      this.marks = lerpMarks(this.marks, target.marks, Math.min(1, dt * 1.6)).map((m) => {
+        const xFar = m.xFar ?? m.x
+        // Cap far-end wander so marks stay roughly parallel
+        const cappedFar = m.x + clamp(xFar - m.x, -1.2, 1.2)
+        return {
+          ...m,
+          xFar: cappedFar,
+          poly: rebuildPoly(m.x, cappedFar, 0),
+        }
+      })
     }
 
     return {
@@ -569,45 +581,20 @@ function samplePolyX(
   return fallbackX
 }
 
-/** Attach vision polys / shared roadCurve onto nominal layout marks. */
+/** Attach a gentle shared curve onto nominal layout marks.
+ * Raw vision chains are too noisy for 3D (caused lines to jump/shatter) —
+ * only borrow a capped global bend, never per-peak polylines.
+ */
 function applyCurveToLayout(
   layout: LaneState,
-  visionPolys: { z: number; x: number }[][],
+  _visionPolys: { z: number; x: number }[][],
   roadCurve: number,
 ): LaneState {
+  const curve = clamp(roadCurve, -2.5, 2.5) * 0.35
   const marks = layout.marks.map((m) => {
     const xFar = m.xFar ?? m.x
-    // Match vision chain by near-x proximity
-    let best: { z: number; x: number }[] | null = null
-    let bestD = 2.2
-    for (const poly of visionPolys) {
-      if (poly.length < 2) continue
-      const d = Math.abs(poly[0].x - m.x)
-      if (d < bestD) {
-        bestD = d
-        best = poly
-      }
-    }
-    let poly: { z: number; x: number }[]
-    if (best) {
-      // Shift poly so near x matches layout mark (lane count is authoritative)
-      const dx = m.x - best[0].x
-      const shifted = best.map((p) => ({ z: p.z, x: p.x + dx }))
-      // Blend far end toward layout xFar while keeping bend shape
-      const bendFar = shifted[shifted.length - 1].x - shifted[0].x
-      const wantFar = xFar - m.x
-      const scale = Math.abs(bendFar) > 0.05 ? wantFar / bendFar : 1
-      poly = shifted.map((p) => ({
-        z: p.z,
-        x: m.x + (p.x - shifted[0].x) * scale,
-      }))
-      // Softly mix shared curve if vision bend is weak
-      if (Math.abs(bendFar) < 0.35 && Math.abs(roadCurve) > 0.15) {
-        poly = rebuildPoly(m.x, xFar, roadCurve)
-      }
-    } else {
-      poly = rebuildPoly(m.x, xFar, roadCurve)
-    }
+    // Keep near/far almost parallel; tiny shared bend only
+    const poly = rebuildPoly(m.x, xFar + curve * 0.15, curve)
     return {
       ...m,
       x: poly[0].x,
@@ -973,13 +960,16 @@ function clusterProjected(xs: number[], minGap: number, maxKeep: number): number
 }
 
 function softSmoothPeaks(prev: number[], next: number[], alpha: number): number[] {
-  if (!next.length) return prev.slice(0, Math.min(prev.length, 4))
+  if (!next.length) {
+    // Hold previous briefly instead of dropping to empty (prevents mark thrash)
+    return prev.slice(0, Math.min(prev.length, 6))
+  }
   if (!prev.length) return next
   const out: number[] = []
   const used = new Set<number>()
   for (const p of prev) {
     let best = -1
-    let bestD = 0.08
+    let bestD = 0.06
     for (let i = 0; i < next.length; i++) {
       if (used.has(i)) continue
       const d = Math.abs(next[i] - p)
@@ -990,11 +980,19 @@ function softSmoothPeaks(prev: number[], next: number[], alpha: number): number[
     }
     if (best >= 0) {
       used.add(best)
-      out.push(p * (1 - alpha) + next[best] * alpha)
+      // Slow blend — peaks shouldn't jump frame to frame
+      const blended = p * (1 - alpha * 0.55) + next[best] * (alpha * 0.55)
+      out.push(blended)
+    } else {
+      // Keep unmatched previous peak fading toward nearest next / stay
+      out.push(p)
     }
   }
   for (let i = 0; i < next.length; i++) {
-    if (!used.has(i)) out.push(next[i])
+    if (!used.has(i)) {
+      // New peaks need to appear near an existing one or slowly
+      out.push(next[i])
+    }
   }
   return out.sort((a, b) => a - b).slice(0, 6)
 }
