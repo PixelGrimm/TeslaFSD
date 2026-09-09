@@ -1,0 +1,3 @@
+Opel Insignia Grand Sport 2020 — local GLB from user
+Source file: opel_insignia_grand_sport_2020.glb
+Copied to: public/models/ego-car.glb
