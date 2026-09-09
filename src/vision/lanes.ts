@@ -183,49 +183,47 @@ export class LaneDetector {
     const mid = this.vpX * this.w
     const whiteForCount = this.smoothWhite.map((x) => x * this.w)
 
-    // Prefer yellow cut; else split at largest gap near center (urban dual carriage)
+    // Prefer yellow cut; else only split dual carriage with strong evidence.
+    // A normal 2-lane same-direction road has ~3 paint peaks and must NOT
+    // be treated as 1 same + oncoming (that collapses the HUD to "lanes 1").
     let cutPx: number | null =
       this.hasYellow && this.smoothYellow.length
         ? Math.min(...this.smoothYellow) * this.w
         : null
 
-    if (cutPx == null && whiteForCount.length >= 3) {
+    if (cutPx == null && whiteForCount.length >= 5) {
       cutPx = findCenterCut(whiteForCount, mid)
     }
-    // Urban: 4+ paint peaks often mean dual carriage even without a huge gap
-    if (cutPx == null && whiteForCount.length >= 4) {
-      const sorted = [...whiteForCount].sort((a, b) => a - b)
-      const midIdx = Math.floor((sorted.length - 1) / 2)
-      cutPx = (sorted[midIdx] + sorted[midIdx + 1]) / 2
-    }
-
-    const bidirectional = cutPx != null && whiteForCount.length >= 3
-    this.hasDivider = bidirectional || this.hasYellow
 
     let samePeaks: number[]
     let oncomingPeaks: number[]
+    let bidirectional = false
 
-    if (bidirectional && cutPx != null) {
+    if (cutPx != null && this.hasYellow) {
+      bidirectional = true
+      this.hasDivider = true
       const leftPeaks = whiteForCount.filter((p) => p < cutPx - 8)
       const rightPeaks = whiteForCount.filter((p) => p > cutPx + 8)
-      // UK: ego/same on left of road, oncoming on right. US yellow: oncoming left.
-      if (this.hasYellow) {
-        this.oncomingSide = -1
-        samePeaks = rightPeaks.length ? rightPeaks : whiteForCount.filter((p) => p >= cutPx - 4)
-        oncomingPeaks = leftPeaks
+      this.oncomingSide = -1
+      samePeaks = rightPeaks.length ? rightPeaks : whiteForCount.filter((p) => p >= cutPx - 4)
+      oncomingPeaks = leftPeaks
+    } else if (cutPx != null && whiteForCount.length >= 5) {
+      const leftPeaks = whiteForCount.filter((p) => p < cutPx - 8)
+      const rightPeaks = whiteForCount.filter((p) => p > cutPx + 8)
+      // UK dual carriage: need real structure on both sides (not just two kerbs)
+      if (leftPeaks.length >= 2 && rightPeaks.length >= 2) {
+        bidirectional = true
+        this.hasDivider = true
+        this.oncomingSide = 1
+        samePeaks = leftPeaks
+        oncomingPeaks = rightPeaks
       } else {
-        // No yellow → left-hand traffic (UK/EU urban)
-        if (rightPeaks.length >= 1 && leftPeaks.length >= 1) {
-          this.oncomingSide = 1
-          samePeaks = leftPeaks
-          oncomingPeaks = rightPeaks
-        } else {
-          this.oncomingSide = 1
-          samePeaks = whiteForCount
-          oncomingPeaks = []
-        }
+        this.hasDivider = false
+        samePeaks = whiteForCount
+        oncomingPeaks = []
       }
     } else {
+      this.hasDivider = false
       samePeaks = whiteForCount
       oncomingPeaks = []
     }
@@ -233,7 +231,13 @@ export class LaneDetector {
     const boundaryPeaks =
       cutPx != null && this.hasYellow ? [cutPx, ...samePeaks] : samePeaks
     let observedSame = clamp(estimateLaneCount(boundaryPeaks, this.w), 1, 3)
-    // Typical UK urban: 2 same + 2 oncoming when both sides look busy
+
+    // Two lane edges spaced like a dual carriageway → 2 same-direction lanes
+    if (!bidirectional && whiteForCount.length >= 2) {
+      const span =
+        Math.max(...whiteForCount) - Math.min(...whiteForCount)
+      if (span > this.w * 0.2) observedSame = Math.max(observedSame, 2)
+    }
     if (
       bidirectional &&
       !this.hasYellow &&
@@ -242,10 +246,20 @@ export class LaneDetector {
     ) {
       observedSame = 2
     }
+    // Prefer 2 over 1 on ordinary urban streets (faster promote)
+    if (!bidirectional && observedSame === 1 && whiteForCount.length >= 2) {
+      observedSame = 2
+    }
 
     this.commitVotesAsym(this.sameVotes, observedSame, this.sameLanes, (n) => {
       this.sameLanes = n
     })
+    // Don't linger on a false single-lane lock
+    if (observedSame >= 2 && this.sameLanes === 1 && this.sameVotes[2] > 3) {
+      this.sameLanes = 2
+      this.sameVotes.fill(0)
+      this.sameVotes[2] = 2.5
+    }
 
     if (bidirectional && oncomingPeaks.length >= 1) {
       let observedOncoming = clamp(
@@ -262,11 +276,10 @@ export class LaneDetector {
           this.oncomingLanes = Math.max(1, n)
         },
       )
-      // Seed so the first strong dual-carriage frame shows oncoming quickly
       if (this.oncomingLanes < 1) this.oncomingLanes = Math.max(1, observedOncoming)
     } else if (!this.hasYellow && !bidirectional) {
       for (let i = 0; i < this.oncomingVotes.length; i++) {
-        this.oncomingVotes[i] = Math.max(0, this.oncomingVotes[i] - 0.35)
+        this.oncomingVotes[i] = Math.max(0, this.oncomingVotes[i] - 0.5)
       }
       if (this.oncomingVotes.every((v) => v < 1)) this.oncomingLanes = 0
     }

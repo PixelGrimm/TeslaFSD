@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { CanvasTexture, SRGBColorSpace } from 'three'
 import type { SpeedLimitSignState } from '../world/types'
 
-function makeEuSignTexture(value: number): CanvasTexture {
+function makeEuSignTexture(value: number | 'national'): CanvasTexture {
   const size = 256
   const c = document.createElement('canvas')
   c.width = size
@@ -19,25 +19,40 @@ function makeEuSignTexture(value: number): CanvasTexture {
   ctx.fillStyle = '#ffffff'
   ctx.fill()
 
-  ctx.beginPath()
-  ctx.arc(cx, cy, r - 2, 0, Math.PI * 2)
-  ctx.strokeStyle = '#e30613'
-  ctx.lineWidth = size * 0.13
-  ctx.stroke()
+  if (value === 'national') {
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, Math.PI * 2)
+    ctx.strokeStyle = '#c4c4c4'
+    ctx.lineWidth = 4
+    ctx.stroke()
 
-  ctx.beginPath()
-  ctx.arc(cx, cy, r, 0, Math.PI * 2)
-  ctx.strokeStyle = '#c4c4c4'
-  ctx.lineWidth = 3
-  ctx.stroke()
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(-Math.PI / 4)
+    ctx.fillStyle = '#111111'
+    ctx.fillRect(-r * 0.72, -size * 0.055, r * 1.44, size * 0.11)
+    ctx.restore()
+  } else {
+    ctx.beginPath()
+    ctx.arc(cx, cy, r - 2, 0, Math.PI * 2)
+    ctx.strokeStyle = '#e30613'
+    ctx.lineWidth = size * 0.13
+    ctx.stroke()
 
-  const text = String(value)
-  ctx.fillStyle = '#111111'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  const fontSize = text.length >= 3 ? size * 0.36 : size * 0.46
-  ctx.font = `700 ${fontSize}px "DM Sans", Arial, Helvetica, sans-serif`
-  ctx.fillText(text, cx, cy + size * 0.02)
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, Math.PI * 2)
+    ctx.strokeStyle = '#c4c4c4'
+    ctx.lineWidth = 3
+    ctx.stroke()
+
+    const text = String(value)
+    ctx.fillStyle = '#111111'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const fontSize = text.length >= 3 ? size * 0.36 : size * 0.46
+    ctx.font = `700 ${fontSize}px "DM Sans", Arial, Helvetica, sans-serif`
+    ctx.fillText(text, cx, cy + size * 0.02)
+  }
 
   const tex = new CanvasTexture(c)
   tex.colorSpace = SRGBColorSpace
@@ -46,7 +61,7 @@ function makeEuSignTexture(value: number): CanvasTexture {
   return tex
 }
 
-/** EU circular speed-limit sign on a pole beside the road. */
+/** EU circular speed-limit / UK national limit sign on a roadside pole. */
 export function SpeedLimitSign({ sign }: { sign: SpeedLimitSignState }) {
   const texture = useMemo(() => makeEuSignTexture(sign.value), [sign.value])
 
@@ -59,7 +74,6 @@ export function SpeedLimitSign({ sign }: { sign: SpeedLimitSignState }) {
   const diameter = 0.95
   const radius = diameter / 2
   const faceY = 2.05
-  // Pole stops at the bottom of the disc — never through the digits
   const poleTop = faceY - radius + 0.02
   const poleH = Math.max(0.4, poleTop)
 
@@ -73,7 +87,6 @@ export function SpeedLimitSign({ sign }: { sign: SpeedLimitSignState }) {
         <meshStandardMaterial color="#6a6560" roughness={0.85} metalness={0.2} />
       </mesh>
 
-      {/* Mount collar just under the disc */}
       <mesh position={[0, poleTop - 0.02, 0]}>
         <cylinderGeometry args={[0.05, 0.05, 0.06, 10]} />
         <meshStandardMaterial color="#55524e" roughness={0.7} metalness={0.35} />

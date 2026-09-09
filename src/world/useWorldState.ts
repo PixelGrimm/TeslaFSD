@@ -32,17 +32,15 @@ const VEHICLE_CLASSES = new Set(['car', 'truck', 'bus', 'motorcycle'])
 
 const DEFAULT_LANES: LaneState = {
   sameDirectionLanes: 2,
-  oncomingLanes: 2,
+  oncomingLanes: 0,
   oncomingSide: 1,
   marks: [
     { x: -1.8, kind: 'solid_white' },
     { x: 1.8, kind: 'dashed_white' },
     { x: 5.4, kind: 'solid_white' },
-    { x: 9.0, kind: 'dashed_white' },
-    { x: 12.6, kind: 'solid_white' },
   ],
   egoLaneHalfWidth: 1.8,
-  dividerX: 5.4,
+  dividerX: null,
 }
 
 const DEFAULT_CURBS: CurbState = {
@@ -53,12 +51,12 @@ const DEFAULT_CURBS: CurbState = {
     { x: -3.2, z: 45 },
   ],
   right: [
-    { x: 14.0, z: 4 },
-    { x: 14.0, z: 15 },
-    { x: 14.0, z: 30 },
-    { x: 14.0, z: 45 },
+    { x: 6.8, z: 4 },
+    { x: 6.8, z: 15 },
+    { x: 6.8, z: 30 },
+    { x: 6.8, z: 45 },
   ],
-  roadHalfWidth: 8.5,
+  roadHalfWidth: 5.0,
 }
 
 const DEFAULT_EXTRAS: SceneExtras = {
@@ -72,7 +70,7 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
   const [lanes, setLanes] = useState<LaneState>(DEFAULT_LANES)
   const [curbs, setCurbs] = useState<CurbState>(DEFAULT_CURBS)
   const [extras, setExtras] = useState<SceneExtras>(DEFAULT_EXTRAS)
-  const [speedLimit, setSpeedLimit] = useState<number | null>(null)
+  const [speedLimit, setSpeedLimit] = useState<number | 'national' | null>(null)
   const [speedSign, setSpeedSign] = useState<SpeedLimitSignState | null>(null)
   const [motion, setMotion] = useState<EgoMotion>({
     speedMps: 0,
@@ -218,7 +216,9 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
         lastLimitRef.current = now
         const det = limitDetRef.current.detect(video)
         speedDetRef.current = det
-        setSpeedLimit(det?.value ?? null)
+        // HUD keeps last confirmed limit until a different sign is read
+        const hud = limitDetRef.current.getHudValue()
+        if (hud != null) setSpeedLimit(hud)
 
         if (det) {
           const markXs = lanesRef.current.marks.map((m) => m.x)

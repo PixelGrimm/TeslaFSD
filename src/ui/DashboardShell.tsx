@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
+import type { SpeedLimitValue } from '../vision/speedLimit'
 import { StatusBar } from './StatusBar'
 
 interface DashboardShellProps {
   children: ReactNode
-  speedLimit: number | null
+  speedLimit: SpeedLimitValue | null
   showPip: boolean
   onTogglePip: () => void
 }

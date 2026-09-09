@@ -93,7 +93,8 @@ export interface EgoMotion {
 
 /** Detected roadside speed-limit sign for 3D placement. */
 export interface SpeedLimitSignState {
-  value: number
+  /** Numeric limit, or UK national speed limit (derestriction). */
+  value: number | 'national'
   /** World X (meters); negative = left of ego. */
   x: number
   /** Forward distance meters. */
@@ -145,7 +146,7 @@ export interface PerceptionOverlay {
   vpX?: number
   /** Locked EU/US speed-limit bbox in image space, if any. */
   speedLimit?: {
-    value: number
+    value: number | 'national'
     box: { x: number; y: number; width: number; height: number }
     locked: boolean
   } | null

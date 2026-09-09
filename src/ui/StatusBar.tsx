@@ -1,16 +1,30 @@
+import type { SpeedLimitValue } from '../vision/speedLimit'
+
 interface StatusBarProps {
-  speedLimit: number | null
+  speedLimit: SpeedLimitValue | null
 }
 
-/** EU-style circular speed-limit HUD (top-right). */
+/** EU circular numeric limit, or UK national speed-limit disc. */
 export function StatusBar({ speedLimit }: StatusBarProps) {
+  const national = speedLimit === 'national'
+  const label =
+    speedLimit == null
+      ? 'Speed limit'
+      : national
+        ? 'National speed limit'
+        : `Speed limit ${speedLimit}`
+
   return (
     <header className="status-bar status-bar-minimal">
       <div
-        className="limit-circle"
-        aria-label={speedLimit != null ? `Speed limit ${speedLimit}` : 'Speed limit'}
+        className={`limit-circle${national ? ' national' : ''}`}
+        aria-label={label}
       >
-        <span className="limit-circle-num">{speedLimit ?? '—'}</span>
+        {national ? (
+          <span className="limit-slash" aria-hidden />
+        ) : (
+          <span className="limit-circle-num">{speedLimit ?? '—'}</span>
+        )}
       </div>
     </header>
   )

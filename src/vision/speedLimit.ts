@@ -1,7 +1,9 @@
+export type SpeedLimitValue = number | 'national'
+
 const LIMITS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 90, 100, 110, 120]
 
 export interface SpeedLimitDetection {
-  value: number
+  value: SpeedLimitValue
   /** Normalized bbox center x in image [0,1]. */
   imageX: number
   imageY: number
@@ -16,8 +18,9 @@ export interface SpeedLimitDetection {
 }
 
 /**
- * Lightweight speed-limit reader: finds circular (EU) or rectangular (US)
- * sign-like blobs, then template-matches interior digits.
+ * Lightweight speed-limit reader: circular EU numeric, US white rects,
+ * and UK national speed limit (white disc + black diagonal bar).
+ * HUD value persists until a different sign is confirmed.
  */
 export class SpeedLimitDetector {
   private canvas: HTMLCanvasElement
@@ -25,7 +28,9 @@ export class SpeedLimitDetector {
   private readonly w = 320
   private readonly h = 180
   private templates: Map<string, Float32Array> | null = null
-  private value: number | null = null
+  /** Last confirmed limit for the HUD — never cleared on miss. */
+  private hudValue: SpeedLimitValue | null = null
+  private value: SpeedLimitValue | null = null
   private lastDet: SpeedLimitDetection | null = null
   private hits = 0
   private miss = 0
@@ -39,7 +44,12 @@ export class SpeedLimitDetector {
     this.ctx = ctx
   }
 
-  /** Stable reading with image position, or null. */
+  /** Persisted HUD reading (numeric or national). */
+  getHudValue(): SpeedLimitValue | null {
+    return this.hudValue
+  }
+
+  /** Stable reading with image position for 3D / overlay, or null if unlocked. */
   detect(video: HTMLVideoElement): SpeedLimitDetection | null {
     if (video.readyState < 2 || video.videoWidth === 0) {
       return this.hits >= 2 ? this.lastDet : null
@@ -50,12 +60,19 @@ export class SpeedLimitDetector {
     this.ctx.drawImage(video, 0, 0, this.w, this.h)
     const { data } = this.ctx.getImageData(0, 0, this.w, this.h)
 
+    let best: { value: SpeedLimitValue; score: number; box: Box } | null = null
+
+    const national = findNationalLimitSigns(data, this.w, this.h)
+    for (const c of national) {
+      if (c.score > (best?.score ?? 0)) {
+        best = { value: 'national', score: c.score, box: c.box }
+      }
+    }
+
     const candidates = [
       ...findRedCircles(data, this.w, this.h),
       ...findWhiteRects(data, this.w, this.h),
     ]
-    let best: { value: number; score: number; box: Box } | null = null
-
     for (const c of candidates) {
       const reading = readDigitsInBox(this.ctx, c, this.templates)
       if (reading == null) continue
@@ -105,15 +122,18 @@ export class SpeedLimitDetector {
         this.value = best.value
         this.lastDet = det
       }
+      if (this.hits >= 2) {
+        this.hudValue = best.value
+      }
       this.miss = 0
     } else {
       this.miss++
-      if (this.miss > 22) {
-        this.value = null
+      // Keep HUD forever; only drop the live image lock after a long miss
+      if (this.miss > 28) {
         this.lastDet = null
         this.hits = 0
+        this.value = null
       } else if (this.lastDet && this.hits >= 3) {
-        // Hold lock briefly through miss frames
         this.lastDet = { ...this.lastDet, locked: true }
       }
     }
@@ -130,6 +150,117 @@ interface Box {
   y: number
   w: number
   h: number
+}
+
+/** UK national speed limit: white disc + black diagonal bar, little/no red ring. */
+function findNationalLimitSigns(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+): Array<{ box: Box; score: number }> {
+  const heat = new Float32Array(w * h)
+  for (let y = 0; y < h * 0.78; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4
+      const r = data[i]
+      const g = data[i + 1]
+      const b = data[i + 2]
+      const bright = (r + g + b) / 3
+      const sat = Math.max(r, g, b) - Math.min(r, g, b)
+      // Bright, low-saturation disc (not a red-ring numeric sign interior only)
+      if (bright > 175 && sat < 45) heat[y * w + x] = 1
+    }
+  }
+
+  const out: Array<{ box: Box; score: number }> = []
+  const visited = new Uint8Array(w * h)
+  for (let y = 2; y < h * 0.78; y += 2) {
+    for (let x = 2; x < w - 2; x += 2) {
+      const idx = y * w + x
+      if (!heat[idx] || visited[idx]) continue
+      const blob = flood(heat, visited, w, h, x, y)
+      if (blob.count < 55 || blob.count > 4500) continue
+      const bw = blob.maxX - blob.minX
+      const bh = blob.maxY - blob.minY
+      if (bw < 16 || bh < 16) continue
+      const aspect = bw / bh
+      if (aspect < 0.75 || aspect > 1.35) continue
+
+      // Reject strong red rings (those are numeric limits)
+      let redRing = 0
+      let ringN = 0
+      const cx = (blob.minX + blob.maxX) / 2
+      const cy = (blob.minY + blob.maxY) / 2
+      const rad = Math.max(bw, bh) / 2
+      for (let a = 0; a < 32; a++) {
+        const ang = (a / 32) * Math.PI * 2
+        for (const t of [0.88, 0.96]) {
+          const px = Math.round(cx + Math.cos(ang) * rad * t)
+          const py = Math.round(cy + Math.sin(ang) * rad * t)
+          if (px < 0 || py < 0 || px >= w || py >= h) continue
+          const i = (py * w + px) * 4
+          ringN++
+          if (data[i] > 140 && data[i] > data[i + 1] + 35 && data[i] > data[i + 2] + 35) {
+            redRing++
+          }
+        }
+      }
+      if (ringN && redRing / ringN > 0.22) continue
+
+      const slash = scoreDiagonalSlash(data, w, blob.minX, blob.minY, bw, bh)
+      if (slash < 0.42) continue
+      out.push({
+        box: { x: blob.minX, y: blob.minY, w: bw, h: bh },
+        score: 0.45 + slash * 0.55,
+      })
+    }
+  }
+  return out.slice(0, 4)
+}
+
+/** Score black diagonal bar across a white disc (both / and \). */
+function scoreDiagonalSlash(
+  data: Uint8ClampedArray,
+  w: number,
+  x0: number,
+  y0: number,
+  bw: number,
+  bh: number,
+): number {
+  const samples = 18
+  let darkA = 0
+  let darkB = 0
+  let brightOff = 0
+  let n = 0
+  for (let i = 0; i < samples; i++) {
+    const t = (i + 0.5) / samples
+    // Main UK orientation: top-left → bottom-right
+    const ax = Math.round(x0 + bw * 0.18 + bw * 0.64 * t)
+    const ay = Math.round(y0 + bh * 0.18 + bh * 0.64 * t)
+    // Alternate: top-right → bottom-left
+    const bx = Math.round(x0 + bw * 0.82 - bw * 0.64 * t)
+    const by = Math.round(y0 + bh * 0.18 + bh * 0.64 * t)
+    // Off-diagonal control points (should stay bright)
+    const ox = Math.round(x0 + bw * 0.5 + (i % 2 === 0 ? -1 : 1) * bw * 0.22)
+    const oy = Math.round(y0 + bh * (0.25 + t * 0.5))
+
+    const da = inkAt(data, w, ax, ay)
+    const db = inkAt(data, w, bx, by)
+    const off = inkAt(data, w, ox, oy)
+    if (da < 110) darkA++
+    if (db < 110) darkB++
+    if (off > 160) brightOff++
+    n++
+  }
+  const slash = Math.max(darkA, darkB) / n
+  const field = brightOff / n
+  return slash * 0.7 + field * 0.3
+}
+
+function inkAt(data: Uint8ClampedArray, w: number, x: number, y: number) {
+  const i = (y * w + x) * 4
+  if (i < 0 || i + 2 >= data.length) return 255
+  return (data[i] + data[i + 1] + data[i + 2]) / 3
 }
 
 function findRedCircles(data: Uint8ClampedArray, w: number, h: number): Box[] {
