@@ -29,6 +29,9 @@ export default defineConfig({
       workbox: {
         // Keep ML WASM / models network-first; cache app shell.
         globPatterns: ['**/*.{js,css,html,svg,ico,woff2}'],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/.*/i,

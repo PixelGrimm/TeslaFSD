@@ -6,7 +6,7 @@ import { DetectedObject } from './DetectedObject'
 import { EgoCar } from './EgoCar'
 import { Road } from './Road'
 import { SpeedLimitSign } from './SpeedLimitSign'
-import { ZebraCrossing } from './UrbanSurroundings'
+import { ZebraCrossing } from './ZebraCrossing'
 
 interface FsdSceneProps {
   objects: WorldObject[]

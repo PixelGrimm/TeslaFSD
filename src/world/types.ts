@@ -70,16 +70,6 @@ export interface LaneState {
 export interface SceneExtras {
   /** Crosswalk strips ahead of ego, if detected. */
   zebra: { z: number; width: number; opacity: number } | null
-  /** Soft building facade blocks (Tesla-style massing). */
-  buildings: Array<{
-    side: -1 | 1
-    x: number
-    z: number
-    width: number
-    height: number
-    depth: number
-  }>
-  urban: boolean
 }
 
 export interface EgoMotion {

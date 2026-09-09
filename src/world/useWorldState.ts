@@ -60,8 +60,6 @@ const DEFAULT_CURBS: CurbState = {
 
 const DEFAULT_EXTRAS: SceneExtras = {
   zebra: null,
-  buildings: [],
-  urban: false,
 }
 
 export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, active: boolean) {
@@ -197,12 +195,10 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
           if (zebraSmoothRef.current.opacity < 0.35) zebraSmoothRef.current = null
         }
         extrasRef.current = {
-          buildings: [],
           zebra:
             zebraSmoothRef.current && zebraSmoothRef.current.opacity >= 0.55
               ? { ...zebraSmoothRef.current }
               : null,
-          urban: false,
         }
       }
 
@@ -391,8 +387,6 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
           right: curbsRef.current.right.map((p) => ({ ...p })),
         })
         setExtras({
-          urban: extrasRef.current.urban,
-          buildings: extrasRef.current.buildings.map((b) => ({ ...b })),
           zebra: extrasRef.current.zebra ? { ...extrasRef.current.zebra } : null,
         })
         const mph = speedRef.current * 2.23694
