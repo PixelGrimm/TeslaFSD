@@ -184,7 +184,7 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
         lastUrbanRef.current = now
         const buildings = detectUrbanSurroundings(video)
         const zebraHit = detectZebraCrossing(video)
-        if (zebraHit && zebraHit.confidence > 0.55) {
+        if (zebraHit && zebraHit.confidence > 0.42) {
           const prev = zebraSmoothRef.current
           zebraSmoothRef.current = {
             z: prev ? prev.z * 0.7 + zebraHit.z * 0.3 : zebraHit.z,
@@ -317,7 +317,7 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
 
           let signal = existing?.signal
           if (det.className === 'traffic light') {
-            signal = sampleTrafficLightSignal(video, det.box)
+            signal = sampleTrafficLightSignal(video, det.box, existing?.signal ?? 'off')
           }
 
           if (existing) {

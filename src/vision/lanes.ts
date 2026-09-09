@@ -79,6 +79,7 @@ export class LaneDetector {
     if (video.readyState >= 2 && video.videoWidth > 0) {
       this.sample(video)
     }
+    this.sameLanes = Math.max(2, this.sameLanes)
     const layout = buildLayout(
       this.sameLanes,
       this.oncomingLanes,
@@ -138,11 +139,12 @@ export class LaneDetector {
       const { white, yellow } = scoreRow(data, this.w, y, night, this.rollBias)
       rowPeaks.push({
         y,
-        xs: findPeaks(white, night ? 8 : 12, 16, 6),
+        // Lower thresholds so worn UK dashed paint still registers
+        xs: findPeaks(white, night ? 4 : 6, 12, 7),
       })
       yellowRowPeaks.push({
         y,
-        xs: findPeaks(yellow, night ? 12 : 16, 24, 2),
+        xs: findPeaks(yellow, night ? 8 : 12, 20, 2),
       })
     }
 
@@ -159,7 +161,7 @@ export class LaneDetector {
       yRef,
     ).filter((x) => x < this.w * (0.45 + this.rollBias))
 
-    const whitePeaksPx = clusterProjected(whiteProjected, 20, 5)
+    const whitePeaksPx = clusterProjected(whiteProjected, 16, 6)
     const yellowPeaksPx = clusterProjected(yellowProjected, 26, 2)
 
     const hasYellowNow = yellowPeaksPx.length > 0
@@ -230,13 +232,15 @@ export class LaneDetector {
 
     const boundaryPeaks =
       cutPx != null && this.hasYellow ? [cutPx, ...samePeaks] : samePeaks
-    let observedSame = clamp(estimateLaneCount(boundaryPeaks, this.w), 1, 3)
+    // Urban prior: always at least 2 same-direction lanes (never collapse to 1).
+    // 1 peak / no paint → still show dual lane; 3+ peaks → 2 or 3.
+    let observedSame = clamp(estimateLaneCount(boundaryPeaks, this.w), 2, 3)
 
-    // Two lane edges spaced like a dual carriageway → 2 same-direction lanes
     if (!bidirectional && whiteForCount.length >= 2) {
-      const span =
-        Math.max(...whiteForCount) - Math.min(...whiteForCount)
-      if (span > this.w * 0.2) observedSame = Math.max(observedSame, 2)
+      const span = Math.max(...whiteForCount) - Math.min(...whiteForCount)
+      if (span > this.w * 0.16) observedSame = Math.max(observedSame, 2)
+      // Three well-spaced marks → two lanes (L | dash | R)
+      if (whiteForCount.length >= 3) observedSame = Math.max(observedSame, 2)
     }
     if (
       bidirectional &&
@@ -246,19 +250,19 @@ export class LaneDetector {
     ) {
       observedSame = 2
     }
-    // Prefer 2 over 1 on ordinary urban streets (faster promote)
-    if (!bidirectional && observedSame === 1 && whiteForCount.length >= 2) {
-      observedSame = 2
-    }
 
     this.commitVotesAsym(this.sameVotes, observedSame, this.sameLanes, (n) => {
-      this.sameLanes = n
+      this.sameLanes = Math.max(2, n)
     })
-    // Don't linger on a false single-lane lock
-    if (observedSame >= 2 && this.sameLanes === 1 && this.sameVotes[2] > 3) {
+    // Snap up to 2 immediately — demotion to 1 is disabled
+    if (this.sameLanes < 2) {
       this.sameLanes = 2
       this.sameVotes.fill(0)
-      this.sameVotes[2] = 2.5
+      this.sameVotes[2] = 3
+    }
+    // Promote 2→2 stickiness; promote to 3 only via votes
+    if (observedSame === 2 && this.sameLanes === 2) {
+      this.sameVotes[2] = Math.min(12, this.sameVotes[2] + 0.5)
     }
 
     if (bidirectional && oncomingPeaks.length >= 1) {
@@ -318,7 +322,7 @@ export class LaneDetector {
     for (let i = 0; i < votes.length; i++) {
       if (i !== idx) votes[i] = Math.max(0, votes[i] - (observed < current ? 0.25 : 0.4))
     }
-    const need = observed < current ? 9 : 5.5
+    const need = observed < current ? 18 : 3.5
     if (votes[idx] > need) {
       apply(idx)
       for (let i = 0; i < votes.length; i++) votes[i] = 0
@@ -341,8 +345,9 @@ export class LaneLayoutAnimator {
   private dividerX: number | null = null
 
   update(target: LaneState, dt: number): LaneState {
-    const targetSame = target.sameDirectionLanes
-    const dropping = targetSame < this.sameLanes
+    // Never animate down to a single same-direction lane
+    const targetSame = Math.max(2, target.sameDirectionLanes)
+    const dropping = targetSame < this.sameLanes && this.sameLanes > 2
 
     if (dropping && this.mergeT >= 1) {
       this.mergeT = 0
@@ -386,7 +391,10 @@ export class LaneLayoutAnimator {
     }
 
     return {
-      sameDirectionLanes: this.mergeT < 1 ? Math.max(targetSame, this.sameLanes) : this.sameLanes,
+      sameDirectionLanes: Math.max(
+        2,
+        this.mergeT < 1 ? Math.max(targetSame, this.sameLanes) : this.sameLanes,
+      ),
       oncomingLanes: this.oncomingLanes,
       oncomingSide: this.oncomingSide,
       marks: this.marks.map((m) => ({ ...m })),
@@ -819,6 +827,16 @@ function scoreRow(
   const y1 = Math.min(Math.floor(data.length / (w * 4)) - 1, y + 2)
   const xShift = Math.round(rollBias * w)
 
+  // Local row mean for adaptive asphalt threshold
+  let rowMean = 0
+  let rowN = 0
+  for (let x = 4; x < w - 4; x += 2) {
+    const i = (y * w + x) * 4
+    rowMean += (data[i] + data[i + 1] + data[i + 2]) / 3
+    rowN++
+  }
+  rowMean /= Math.max(1, rowN)
+
   for (let yy = y0; yy <= y1; yy++) {
     for (let x = 3; x < w - 3; x++) {
       const sx = clamp(x + xShift, 3, w - 4)
@@ -829,11 +847,11 @@ function scoreRow(
       const bright = (r + g + b) / 3
 
       let neigh = 0
-      for (const dx of [-12, -7, 7, 12]) {
+      for (const dx of [-14, -8, -5, 5, 8, 14]) {
         const ni = (yy * w + clamp(sx + dx, 0, w - 1)) * 4
         neigh += (data[ni] + data[ni + 1] + data[ni + 2]) / 3
       }
-      neigh /= 4
+      neigh /= 6
       const contrast = bright - neigh
       const max = Math.max(r, g, b)
       const min = Math.min(r, g, b)
@@ -842,26 +860,37 @@ function scoreRow(
       const looksYellow =
         r > g + 6 &&
         g > b + 10 &&
-        r - b > (night ? 42 : 55) &&
-        sat > (night ? 0.24 : 0.34) &&
+        r - b > (night ? 42 : 50) &&
+        sat > (night ? 0.22 : 0.28) &&
         sat < 0.9 &&
-        r > (night ? 90 : 120) &&
-        bright < 215
+        r > (night ? 85 : 110) &&
+        bright < 220
 
-      const whiteThresh = night ? 45 : 88
-      const contrastThresh = night ? 12 : 17
+      // Adaptive: paint is brighter than local asphalt, not an absolute white
+      const whiteThresh = night ? 40 : Math.max(70, rowMean + 12)
+      const contrastThresh = night ? 8 : 10
 
       if (
         !looksYellow &&
         bright > whiteThresh &&
         contrast > contrastThresh &&
-        sat < 0.38 &&
-        Math.abs(r - g) < 36
+        sat < 0.45 &&
+        Math.abs(r - g) < 42
       ) {
-        white[x] += 0.5 + Math.min(2.2, contrast / 26)
+        white[x] += 0.55 + Math.min(2.4, contrast / 22)
       }
 
-      if (looksYellow && x < w * 0.58 && contrast > (night ? 8 : 12)) {
+      // Edge ridge: strong horizontal gradient often marks lane paint
+      const iL = (yy * w + clamp(sx - 3, 0, w - 1)) * 4
+      const iR = (yy * w + clamp(sx + 3, 0, w - 1)) * 4
+      const bL = (data[iL] + data[iL + 1] + data[iL + 2]) / 3
+      const bR = (data[iR] + data[iR + 1] + data[iR + 2]) / 3
+      const edge = Math.abs(bL - bR)
+      if (!looksYellow && bright > rowMean + 8 && edge > (night ? 18 : 22) && sat < 0.4) {
+        white[x] += 0.35
+      }
+
+      if (looksYellow && x < w * 0.58 && contrast > (night ? 6 : 9)) {
         yellow[x] += 0.65 + Math.min(2, contrast / 26)
       }
     }
@@ -936,7 +965,7 @@ function clusterProjected(xs: number[], minGap: number, maxKeep: number): number
     }
   }
   return clusters
-    .filter((c) => c.n >= 2)
+    .filter((c) => c.n >= 1)
     .sort((a, b) => b.n - a.n)
     .slice(0, maxKeep)
     .map((c) => Math.round(c.x))
@@ -1084,14 +1113,18 @@ function findCenterCut(peaks: number[], mid: number): number | null {
 }
 
 function estimateLaneCount(peaks: number[], width: number): number {
-  if (peaks.length <= 1) return 1
+  if (peaks.length <= 1) return 2 // urban floor — never report a single lane
   const merged: number[] = [peaks[0]]
   for (let i = 1; i < peaks.length; i++) {
-    if (peaks[i] - merged[merged.length - 1] < 24) continue
+    if (peaks[i] - merged[merged.length - 1] < 18) continue
     merged.push(peaks[i])
   }
-  if (merged.length <= 1) return 1
-  if (merged.length === 2) return 2
+  if (merged.length <= 1) return 2
+  if (merged.length === 2) {
+    const gap = merged[1] - merged[0]
+    // Wide gap between two edges ≈ two lanes even without a visible dash
+    return gap > width * 0.14 ? 2 : 2
+  }
 
   const gaps: number[] = []
   for (let i = 1; i < merged.length; i++) gaps.push(merged[i] - merged[i - 1])
@@ -1099,8 +1132,8 @@ function estimateLaneCount(peaks: number[], width: number): number {
   const medianGap = gaps[Math.floor(gaps.length / 2)] || width * 0.2
   const fromPeaks = merged.length - 1
   const span = merged[merged.length - 1] - merged[0]
-  const fromSpan = Math.max(1, Math.round(span / clamp(medianGap, 30, 100)))
-  return clamp(Math.min(fromPeaks, fromSpan), 1, 4)
+  const fromSpan = Math.max(2, Math.round(span / clamp(medianGap, 28, 100)))
+  return clamp(Math.min(fromPeaks, fromSpan), 2, 4)
 }
 
 function pickEgoLane(peaks: number[], sameLanes: number, mid: number): number {
