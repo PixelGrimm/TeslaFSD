@@ -60,15 +60,8 @@ export class SpeedLimitDetector {
     this.ctx.drawImage(video, 0, 0, this.w, this.h)
     const { data } = this.ctx.getImageData(0, 0, this.w, this.h)
 
-    let best: { value: SpeedLimitValue; score: number; box: Box } | null = null
-
-    const national = findNationalLimitSigns(data, this.w, this.h)
-    for (const c of national) {
-      if (c.score > (best?.score ?? 0)) {
-        best = { value: 'national', score: c.score, box: c.box }
-      }
-    }
-
+    // 1) Numeric EU/UK red-ring signs first (never let NSL false-positives win)
+    let bestNumeric: { value: number; score: number; box: Box } | null = null
     const candidates = [
       ...findRedCircles(data, this.w, this.h),
       ...findWhiteRects(data, this.w, this.h),
@@ -76,12 +69,26 @@ export class SpeedLimitDetector {
     for (const c of candidates) {
       const reading = readDigitsInBox(this.ctx, c, this.templates)
       if (reading == null) continue
-      if (LIMITS.includes(reading.value) && reading.score > (best?.score ?? 0)) {
-        best = { value: reading.value, score: reading.score, box: c }
+      if (!LIMITS.includes(reading.value)) continue
+      if (reading.score > (bestNumeric?.score ?? 0)) {
+        bestNumeric = { value: reading.value, score: reading.score, box: c }
       }
     }
 
-    if (best != null && best.score > 0.4) {
+    let best: { value: SpeedLimitValue; score: number; box: Box } | null = null
+    if (bestNumeric != null && bestNumeric.score >= 0.32) {
+      best = bestNumeric
+    } else {
+      // 2) UK national (derestriction) only when no credible numeric sign
+      const national = findNationalLimitSigns(data, this.w, this.h)
+      for (const c of national) {
+        if (c.score > (best?.score ?? 0) && c.score >= 0.62) {
+          best = { value: 'national', score: c.score, box: c.box }
+        }
+      }
+    }
+
+    if (best != null && best.score > 0.32) {
       const box = {
         x: best.box.x / this.w,
         y: best.box.y / this.h,
@@ -115,7 +122,7 @@ export class SpeedLimitDetector {
             height: this.lastDet.box.height * 0.65 + det.box.height * 0.35,
           },
           side: det.imageX < 0.48 ? -1 : det.imageX > 0.52 ? 1 : this.lastDet.side,
-          locked: this.hits >= 3,
+          locked: this.hits >= 2,
         }
       } else {
         this.hits = 1
@@ -124,24 +131,25 @@ export class SpeedLimitDetector {
       }
       if (this.hits >= 2) {
         this.hudValue = best.value
+        this.value = best.value
       }
       this.miss = 0
     } else {
       this.miss++
-      // Keep HUD forever; only drop the live image lock after a long miss
-      if (this.miss > 28) {
+      if (this.miss > 40) {
         this.lastDet = null
         this.hits = 0
         this.value = null
-      } else if (this.lastDet && this.hits >= 3) {
+        // hudValue intentionally kept
+      } else if (this.lastDet && this.hits >= 2) {
         this.lastDet = { ...this.lastDet, locked: true }
       }
     }
 
-    if (this.hits >= 3 && this.lastDet) {
+    if (this.hits >= 2 && this.lastDet) {
       return { ...this.lastDet, locked: true }
     }
-    return this.hits >= 2 ? this.lastDet : null
+    return this.hits >= 1 && this.lastDet ? this.lastDet : null
   }
 }
 
@@ -205,13 +213,13 @@ function findNationalLimitSigns(
           }
         }
       }
-      if (ringN && redRing / ringN > 0.22) continue
+      if (ringN && redRing / ringN > 0.12) continue
 
       const slash = scoreDiagonalSlash(data, w, blob.minX, blob.minY, bw, bh)
-      if (slash < 0.42) continue
+      if (slash < 0.58) continue
       out.push({
         box: { x: blob.minX, y: blob.minY, w: bw, h: bh },
-        score: 0.45 + slash * 0.55,
+        score: 0.5 + slash * 0.45,
       })
     }
   }
@@ -265,38 +273,45 @@ function inkAt(data: Uint8ClampedArray, w: number, x: number, y: number) {
 
 function findRedCircles(data: Uint8ClampedArray, w: number, h: number): Box[] {
   const heat = new Float32Array(w * h)
-  for (let y = 0; y < h * 0.75; y++) {
+  for (let y = 0; y < h * 0.82; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4
       const r = data[i]
       const g = data[i + 1]
       const b = data[i + 2]
-      if (r > 140 && r > g + 40 && r > b + 40) heat[y * w + x] = 1
+      // UK red rings: allow slightly washed / orange daylight
+      const redish =
+        (r > 125 && r > g + 28 && r > b + 28) ||
+        (r > 145 && r >= g && r > b + 20 && g < 120)
+      if (redish) heat[y * w + x] = 1
     }
   }
 
   const boxes: Box[] = []
   const visited = new Uint8Array(w * h)
-  for (let y = 2; y < h * 0.75; y += 2) {
+  for (let y = 2; y < h * 0.82; y += 2) {
     for (let x = 2; x < w - 2; x += 2) {
       const idx = y * w + x
       if (!heat[idx] || visited[idx]) continue
       const blob = flood(heat, visited, w, h, x, y)
-      if (blob.count < 40 || blob.count > 4000) continue
+      if (blob.count < 28 || blob.count > 5000) continue
       const bw = blob.maxX - blob.minX
       const bh = blob.maxY - blob.minY
-      if (bw < 14 || bh < 14) continue
+      if (bw < 10 || bh < 10) continue
+      if (bw > w * 0.4 || bh > h * 0.45) continue
       const aspect = bw / bh
-      if (aspect < 0.7 || aspect > 1.35) continue
+      if (aspect < 0.65 || aspect > 1.45) continue
+      // Expand a bit so digit interior is inside the crop
+      const pad = Math.max(2, Math.round(Math.min(bw, bh) * 0.08))
       boxes.push({
-        x: blob.minX,
-        y: blob.minY,
-        w: bw,
-        h: bh,
+        x: Math.max(0, blob.minX - pad),
+        y: Math.max(0, blob.minY - pad),
+        w: Math.min(w - 1, bw + pad * 2),
+        h: Math.min(h - 1, bh + pad * 2),
       })
     }
   }
-  return boxes.slice(0, 6)
+  return dedupeBoxes(boxes).slice(0, 8)
 }
 
 function findWhiteRects(data: Uint8ClampedArray, w: number, h: number): Box[] {
@@ -426,8 +441,8 @@ function readDigitsInBox(
   box: Box,
   templates: Map<string, Float32Array>,
 ): { value: number; score: number } | null {
-  const padX = Math.floor(box.w * 0.18)
-  const padY = Math.floor(box.h * 0.18)
+  const padX = Math.floor(box.w * 0.14)
+  const padY = Math.floor(box.h * 0.14)
   const sx = box.x + padX
   const sy = box.y + padY
   const sw = Math.max(8, box.w - padX * 2)
@@ -435,11 +450,13 @@ function readDigitsInBox(
 
   const regions = [
     { x: sx, y: sy, w: sw, h: sh },
-    { x: sx, y: sy + Math.floor(sh * 0.35), w: sw, h: Math.floor(sh * 0.6) },
+    { x: sx, y: sy + Math.floor(sh * 0.28), w: sw, h: Math.floor(sh * 0.65) },
+    { x: sx + Math.floor(sw * 0.08), y: sy + Math.floor(sh * 0.15), w: Math.floor(sw * 0.84), h: Math.floor(sh * 0.7) },
   ]
 
   let best: { value: number; score: number } | null = null
   for (const r of regions) {
+    if (r.w < 6 || r.h < 6) continue
     const img = ctx.getImageData(r.x, r.y, r.w, r.h)
     const digits = splitAndMatch(img, templates)
     if (!digits) continue
@@ -489,7 +506,7 @@ function splitAndMatch(
   for (const seg of segments) {
     const digitImg = cropInk(ink, w, h, seg.x0, seg.x1)
     const match = matchDigit(digitImg, templates)
-    if (!match || match.score < 0.35) return null
+    if (!match || match.score < 0.28) return null
     text += match.digit
     scoreSum += match.score
   }
