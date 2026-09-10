@@ -103,9 +103,16 @@ export function Road({ lanes, motion, curbs }: RoadProps) {
       <CurbRail x={leftBound} nearZ={nearZ} farZ={farZ} />
       <CurbRail x={rightBound} nearZ={nearZ} farZ={farZ} />
 
-      <mesh position={[0, 10, -140]}>
-        <planeGeometry args={[160, 50]} />
-        <meshBasicMaterial color="#e8eaee" transparent opacity={0.45} />
+      {/* Horizon sky plane with gradient effect */}
+      <mesh position={[0, 15, -150]} rotation={[0, 0, 0]}>
+        <planeGeometry args={[180, 70]} />
+        <meshBasicMaterial color="#d0d8e4" transparent opacity={0.6} depthWrite={false} />
+      </mesh>
+      
+      {/* Mid-distance haze for depth */}
+      <mesh position={[0, 2, -90]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[140, 60]} />
+        <meshBasicMaterial color="#e0e4e8" transparent opacity={0.15} depthWrite={false} />
       </mesh>
     </group>
   )

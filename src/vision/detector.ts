@@ -17,13 +17,13 @@ const ALLOWED = new Set([
 
 /** Higher bars for classes that false-trigger on road glare / signs. */
 const MIN_SCORE: Record<string, number> = {
-  car: 0.42,
-  truck: 0.4,
-  bus: 0.4,
-  motorcycle: 0.45,
-  person: 0.58,
-  'traffic light': 0.38,
-  'stop sign': 0.5,
+  car: 0.38,
+  truck: 0.36,
+  bus: 0.36,
+  motorcycle: 0.42,
+  person: 0.52,
+  'traffic light': 0.35,
+  'stop sign': 0.48,
 }
 
 type ObjectDetectorInstance = {
@@ -56,8 +56,8 @@ export class VisionDetector {
           modelAssetPath: MODEL_URL,
           delegate: 'CPU',
         },
-        scoreThreshold: 0.35,
-        maxResults: 16,
+        scoreThreshold: 0.32,
+        maxResults: 24,
         runningMode: 'VIDEO',
       })
     })()

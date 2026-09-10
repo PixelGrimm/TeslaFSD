@@ -28,8 +28,8 @@ function SceneContent({ objects, lanes, curbs, motion, speedSign, extras }: FsdS
 
   return (
     <>
-      <color attach="background" args={['#d8dce4']} />
-      <fog attach="fog" args={['#d8dce4', 60, 220]} />
+      <color attach="background" args={['#c8d0dc']} />
+      <fog attach="fog" args={['#d0d8e4', 50, 200]} />
 
       {/* Enhanced lighting setup */}
       <ambientLight intensity={0.6} />

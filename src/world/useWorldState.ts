@@ -180,23 +180,23 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
       if (now - lastUrbanRef.current >= URBAN_INTERVAL_MS) {
         lastUrbanRef.current = now
         const zebraHit = detectZebraCrossing(video)
-        // Require strong, sustained evidence — fade out quickly otherwise
-        if (zebraHit && zebraHit.confidence >= 0.65) {
+        // Lowered threshold for better visibility, sustained evidence required
+        if (zebraHit && zebraHit.confidence >= 0.58) {
           const prev = zebraSmoothRef.current
-          const nextOp = Math.min(1, (prev?.opacity ?? 0) + 0.35)
-          // Only show in 3D once opacity has built up (≈2 strong hits)
+          const nextOp = Math.min(1, (prev?.opacity ?? 0) + 0.4)
+          // Show in 3D with lower buildup requirement
           zebraSmoothRef.current = {
             z: prev ? prev.z * 0.65 + zebraHit.z * 0.35 : zebraHit.z,
             width: prev ? prev.width * 0.7 + zebraHit.width * 0.3 : zebraHit.width,
             opacity: nextOp,
           }
         } else if (zebraSmoothRef.current) {
-          zebraSmoothRef.current.opacity = Math.max(0, zebraSmoothRef.current.opacity - 0.28)
-          if (zebraSmoothRef.current.opacity < 0.35) zebraSmoothRef.current = null
+          zebraSmoothRef.current.opacity = Math.max(0, zebraSmoothRef.current.opacity - 0.25)
+          if (zebraSmoothRef.current.opacity < 0.3) zebraSmoothRef.current = null
         }
         extrasRef.current = {
           zebra:
-            zebraSmoothRef.current && zebraSmoothRef.current.opacity >= 0.55
+            zebraSmoothRef.current && zebraSmoothRef.current.opacity >= 0.45
               ? { ...zebraSmoothRef.current }
               : null,
         }

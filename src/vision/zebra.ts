@@ -87,13 +87,13 @@ export function detectZebraCrossing(video: HTMLVideoElement): {
 
   // Contiguous band: thick enough to be a crossing, not a single noisy row,
   // but not the whole road (lane texture / shadows).
-  if (bestRun.length < 6 || bestRun.length > 22) return null
+  if (bestRun.length < 5 || bestRun.length > 24) return null
 
   const avgFlips = bestRun.reduce((s, r) => s + r.flips, 0) / bestRun.length
   const avgContrast = bestRun.reduce((s, r) => s + r.contrast, 0) / bestRun.length
   const periodVar =
     bestRun.reduce((s, r) => s + Math.abs(r.period - bestRun[0].period), 0) / bestRun.length
-  if (periodVar > 3.5) return null
+  if (periodVar > 4.0) return null
 
   const midY = bestRun[Math.floor(bestRun.length / 2)].y
   const conf = Math.min(
@@ -103,7 +103,7 @@ export function detectZebraCrossing(video: HTMLVideoElement): {
       Math.min(1, avgContrast / 22) * 0.2 +
       (1 - periodVar / 4) * 0.1,
   )
-  if (conf < 0.62) return null
+  if (conf < 0.56) return null
 
   const t = (midY - y0) / Math.max(1, y1 - y0)
   const z = 14 + (1 - t) * 28
