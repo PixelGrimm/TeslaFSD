@@ -6,6 +6,7 @@ interface CameraOverlayProps {
   overlay: PerceptionOverlay
   motion: EgoMotion
   visible: boolean
+  showLanes: boolean
 }
 
 const CLASS_COLOR: Record<string, string> = {
@@ -19,14 +20,16 @@ const CLASS_COLOR: Record<string, string> = {
 }
 
 /** Draws detection boxes + classified lane lines on the live camera PiP. */
-export function CameraOverlay({ videoRef, overlay, motion, visible }: CameraOverlayProps) {
+export function CameraOverlay({ videoRef, overlay, motion, visible, showLanes }: CameraOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef(overlay)
   const motionRef = useRef(motion)
+  const showLanesRef = useRef(showLanes)
   const dashPhase = useRef(0)
   const lastTs = useRef(0)
   overlayRef.current = overlay
   motionRef.current = motion
+  showLanesRef.current = showLanes
 
   useEffect(() => {
     if (!visible) return
@@ -58,63 +61,66 @@ export function CameraOverlay({ videoRef, overlay, motion, visible }: CameraOver
       if (!ctx) return
       ctx.clearRect(0, 0, w, h)
 
-      const y0 = data.bandTop * h
-      const y1 = data.bandBottom * h
-      const vanishY = y0 - h * 0.1
-      const vanishX = (data.vpX ?? 0.5) * w
+      // Only draw lane lines if showLanes is true
+      if (showLanesRef.current) {
+        const y0 = data.bandTop * h
+        const y1 = data.bandBottom * h
+        const vanishY = y0 - h * 0.1
+        const vanishX = (data.vpX ?? 0.5) * w
 
-      ctx.fillStyle = 'rgba(59, 130, 246, 0.06)'
-      ctx.fillRect(0, y0, w, y1 - y0)
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.06)'
+        ctx.fillRect(0, y0, w, y1 - y0)
 
-      const lines = data.lines.length
-        ? data.lines
-        : [
-            ...data.yellowPeaks.map((x) => ({
-              x,
-              color: 'yellow' as const,
-              style: 'solid' as const,
-            })),
-            ...data.whitePeaks.map((x, i, arr) => ({
-              x,
-              color: 'white' as const,
-              style: (i === 0 || i === arr.length - 1 ? 'solid' : 'dashed') as
-                | 'solid'
-                | 'dashed',
-            })),
-          ]
+        const lines = data.lines.length
+          ? data.lines
+          : [
+              ...data.yellowPeaks.map((x) => ({
+                x,
+                color: 'yellow' as const,
+                style: 'solid' as const,
+              })),
+              ...data.whitePeaks.map((x, i, arr) => ({
+                x,
+                color: 'white' as const,
+                style: (i === 0 || i === arr.length - 1 ? 'solid' : 'dashed') as
+                  | 'solid'
+                  | 'dashed',
+              })),
+            ]
 
-      for (const line of lines) {
-        const xBot = line.x * w
-        const xTop = vanishX + (xBot - vanishX) * 0.12
-        const isYellow = line.color === 'yellow'
-        const color = isYellow ? '#f0c93a' : '#ffffff'
+        for (const line of lines) {
+          const xBot = line.x * w
+          const xTop = vanishX + (xBot - vanishX) * 0.12
+          const isYellow = line.color === 'yellow'
+          const color = isYellow ? '#f0c93a' : '#ffffff'
 
-        ctx.strokeStyle = color
-        ctx.lineWidth = isYellow ? 3 : 2.25
-        if (line.style === 'dashed') {
-          ctx.setLineDash([7, 6])
-          ctx.lineDashOffset = -dashPhase.current
-        } else {
+          ctx.strokeStyle = color
+          ctx.lineWidth = isYellow ? 3 : 2.25
+          if (line.style === 'dashed') {
+            ctx.setLineDash([7, 6])
+            ctx.lineDashOffset = -dashPhase.current
+          } else {
+            ctx.setLineDash([])
+            ctx.lineDashOffset = 0
+          }
+
+          // Quadratic bend toward vanishing point (road curve / perspective)
+          const midY = y1 * 0.55 + vanishY * 0.45
+          const linearMid = xBot + (xTop - xBot) * 0.45
+          const ctrlX = linearMid + (vanishX - linearMid) * 0.22
+
+          ctx.beginPath()
+          ctx.moveTo(xBot, y1)
+          ctx.quadraticCurveTo(ctrlX, midY, xTop, vanishY)
+          ctx.stroke()
           ctx.setLineDash([])
           ctx.lineDashOffset = 0
+
+          ctx.fillStyle = color
+          ctx.beginPath()
+          ctx.arc(xBot, y1 - 2, isYellow ? 3.5 : 2.8, 0, Math.PI * 2)
+          ctx.fill()
         }
-
-        // Quadratic bend toward vanishing point (road curve / perspective)
-        const midY = y1 * 0.55 + vanishY * 0.45
-        const linearMid = xBot + (xTop - xBot) * 0.45
-        const ctrlX = linearMid + (vanishX - linearMid) * 0.22
-
-        ctx.beginPath()
-        ctx.moveTo(xBot, y1)
-        ctx.quadraticCurveTo(ctrlX, midY, xTop, vanishY)
-        ctx.stroke()
-        ctx.setLineDash([])
-        ctx.lineDashOffset = 0
-
-        ctx.fillStyle = color
-        ctx.beginPath()
-        ctx.arc(xBot, y1 - 2, isYellow ? 3.5 : 2.8, 0, Math.PI * 2)
-        ctx.fill()
       }
 
       for (const det of data.detections) {

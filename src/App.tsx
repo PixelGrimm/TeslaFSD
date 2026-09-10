@@ -72,6 +72,7 @@ export default function App() {
             overlay={overlay}
             motion={motion}
             visible={showPip}
+            showLanes={showLanes}
           />
         )}
       </div>
