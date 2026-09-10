@@ -12,6 +12,7 @@ export default function App() {
   const [started, setStarted] = useState(false)
   const [starting, setStarting] = useState(false)
   const [showPip, setShowPip] = useState(true)
+  const [showLanes, setShowLanes] = useState(true)
 
   const { objects, lanes, curbs, extras, motion, overlay, speedLimit, speedSign, modelReady, modelError } =
     useWorldState(videoRef, started && cameraReady)
@@ -88,11 +89,13 @@ export default function App() {
           speedLimit={speedLimit}
           showPip={showPip}
           onTogglePip={() => setShowPip((v) => !v)}
+          showLanes={showLanes}
+          onToggleLanes={() => setShowLanes((v) => !v)}
         >
           {cameraError && <div className="runtime-error">{cameraError}</div>}
           <FsdScene
             objects={objects}
-            lanes={lanes}
+            lanes={showLanes ? lanes : { ...lanes, marks: [] }}
             curbs={curbs}
             motion={motion}
             speedSign={speedSign}

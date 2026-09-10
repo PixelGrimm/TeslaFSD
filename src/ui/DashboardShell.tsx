@@ -8,6 +8,8 @@ interface DashboardShellProps {
   speedLimit: SpeedLimitValue | null
   showPip: boolean
   onTogglePip: () => void
+  showLanes: boolean
+  onToggleLanes: () => void
 }
 
 export function DashboardShell({
@@ -15,6 +17,8 @@ export function DashboardShell({
   speedLimit,
   showPip,
   onTogglePip,
+  showLanes,
+  onToggleLanes,
 }: DashboardShellProps) {
   return (
     <div className="dashboard">
@@ -26,6 +30,9 @@ export function DashboardShell({
         <div className="chrome-group">
           <button type="button" className="chrome-btn" onClick={onTogglePip}>
             {showPip ? 'Hide camera' : 'Show camera'}
+          </button>
+          <button type="button" className="chrome-btn" onClick={onToggleLanes}>
+            {showLanes ? 'Hide lanes' : 'Show lanes'}
           </button>
         </div>
         <div className="chrome-center">

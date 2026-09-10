@@ -180,8 +180,12 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
         const detectedLanes = laneDetRef.current.detect(video)
         const laneConfidence = laneDetRef.current.getConfidence()
         
-        // Hide lanes when parked with no road detected
-        if (speedMps < 0.5 && laneConfidence < 0.3) {
+        // Hide lanes when parked with low activity
+        // Check: stopped + (low lane confidence OR no objects detected)
+        const noActivity = objectsRef.current.size === 0 && laneConfidence < 0.5
+        const lowConfidence = laneConfidence < 0.25
+        
+        if (speedMps < 0.5 && (lowConfidence || noActivity)) {
           lanesRawRef.current = NO_LANES
         } else {
           lanesRawRef.current = detectedLanes
