@@ -42,6 +42,15 @@ const DEFAULT_LANES: LaneState = {
   dividerX: null,
 }
 
+const NO_LANES: LaneState = {
+  sameDirectionLanes: 0,
+  oncomingLanes: 0,
+  oncomingSide: 1,
+  marks: [],
+  egoLaneHalfWidth: 1.8,
+  dividerX: null,
+}
+
 const DEFAULT_CURBS: CurbState = {
   left: [
     { x: -3.2, z: 4 },
@@ -168,7 +177,15 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
 
       if (now - lastLaneRef.current >= LANE_INTERVAL_MS) {
         lastLaneRef.current = now
-        lanesRawRef.current = laneDetRef.current.detect(video)
+        const detectedLanes = laneDetRef.current.detect(video)
+        const laneConfidence = laneDetRef.current.getConfidence()
+        
+        // Hide lanes when parked with no road detected
+        if (speedMps < 0.5 && laneConfidence < 0.3) {
+          lanesRawRef.current = NO_LANES
+        } else {
+          lanesRawRef.current = detectedLanes
+        }
       }
       lanesRef.current = laneAnimRef.current.update(lanesRawRef.current, dt)
 

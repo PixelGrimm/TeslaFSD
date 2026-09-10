@@ -43,6 +43,7 @@ export class LaneDetector {
   private visionPolys: { z: number; x: number }[][] = []
   private readonly bandTop = 0.55
   private readonly bandBottom = 0.94
+  private laneConfidence = 0
 
   private orientHandler: ((e: DeviceOrientationEvent) => void) | null = null
 
@@ -89,6 +90,10 @@ export class LaneDetector {
       this.oncomingSide,
     )
     return applyCurveToLayout(layout, this.visionPolys, this.roadCurve)
+  }
+
+  getConfidence(): number {
+    return this.laneConfidence
   }
 
   getOverlayPeaks(): {
@@ -177,6 +182,11 @@ export class LaneDetector {
       0.4,
     )
     if (!hasYellowNow) this.smoothYellow = []
+
+    // Update lane confidence based on detected peaks
+    const totalPeaks = whitePeaksPx.length + yellowPeaksPx.length
+    const targetConfidence = totalPeaks >= 2 ? Math.min(1, totalPeaks / 4) : 0
+    this.laneConfidence = this.laneConfidence * 0.85 + targetConfidence * 0.15
 
     if (hasYellowNow) this.yellowVotes = Math.min(30, this.yellowVotes + 1)
     else this.yellowVotes = Math.max(0, this.yellowVotes - 2)
