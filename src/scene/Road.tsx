@@ -47,18 +47,17 @@ export function Road({ lanes, motion, curbs }: RoadProps) {
   return (
     <group>
       {/* Ground terrain */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, midZ]} receiveShadow>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, midZ]}>
         <planeGeometry args={[120, spanZ + 40]} />
         <meshStandardMaterial 
           color="#8a9098" 
           roughness={0.98} 
           metalness={0}
-          envMapIntensity={0.3}
         />
       </mesh>
 
       {/* Asphalt road surface with improved material */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[asphaltX, 0, midZ]} receiveShadow>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[asphaltX, 0, midZ]}>
         <planeGeometry args={[asphaltW, spanZ]} />
         <meshStandardMaterial 
           color="#4a5058" 
@@ -382,22 +381,20 @@ function CurbRail({
 
   return (
     <group position={[x, 0.08, midZ]}>
-      <mesh castShadow receiveShadow>
+      <mesh>
         <boxGeometry args={[0.22, 0.16, len]} />
         <meshStandardMaterial 
           color="#dce0e8" 
           roughness={0.75} 
           metalness={0.05}
-          envMapIntensity={0.4}
         />
       </mesh>
-      <mesh position={[0, 0.1, 0]} castShadow>
+      <mesh position={[0, 0.1, 0]}>
         <boxGeometry args={[0.34, 0.05, len]} />
         <meshStandardMaterial 
           color="#eff2f6" 
           roughness={0.65}
           metalness={0.08}
-          envMapIntensity={0.5}
         />
       </mesh>
     </group>

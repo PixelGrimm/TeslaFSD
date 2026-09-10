@@ -1,7 +1,6 @@
 import { Canvas } from '@react-three/fiber'
 import { Suspense } from 'react'
-import { EffectComposer, Bloom, SMAA, Vignette, ToneMapping } from '@react-three/postprocessing'
-import { Environment } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import type { CurbState } from '../vision/curbTypes'
 import type { EgoMotion, LaneState, SceneExtras, SpeedLimitSignState, WorldObject } from '../world/types'
 import { DetectedObject } from './DetectedObject'
@@ -31,24 +30,13 @@ function SceneContent({ objects, lanes, curbs, motion, speedSign, extras }: FsdS
       <color attach="background" args={['#c8d0dc']} />
       <fog attach="fog" args={['#d0d8e4', 50, 200]} />
 
-      {/* Enhanced lighting setup */}
-      <ambientLight intensity={0.6} />
+      {/* Optimized lighting for mobile performance */}
+      <ambientLight intensity={0.8} />
       <directionalLight
         position={[10, 32, 15]}
-        intensity={1.8}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-left={-40}
-        shadow-camera-right={40}
-        shadow-camera-top={40}
-        shadow-camera-bottom={-40}
-        shadow-bias={-0.0001}
+        intensity={1.5}
       />
-      <hemisphereLight args={['#ffffff', '#8a96a4', 0.7]} />
-      
-      {/* Subtle environment lighting for reflections */}
-      <Environment preset="city" />
+      <hemisphereLight args={['#ffffff', '#8a96a4', 0.6]} />
 
       <Road lanes={lanes} motion={motion} curbs={curbs} />
       {extras.zebra && (
@@ -60,18 +48,17 @@ function SceneContent({ objects, lanes, curbs, motion, speedSign, extras }: FsdS
       ))}
       {speedSign && <SpeedLimitSign sign={speedSign} />}
       
-      {/* Post-processing effects */}
-      <EffectComposer enableNormalPass={false}>
-        <Bloom 
-          intensity={0.4} 
-          luminanceThreshold={0.85} 
-          luminanceSmoothing={0.9}
-          mipmapBlur
-        />
-        <ToneMapping />
-        <Vignette offset={0.3} darkness={0.4} />
-        <SMAA />
-      </EffectComposer>
+      {/* Lightweight post-processing for mobile performance */}
+      {typeof window !== 'undefined' && window.innerWidth > 768 && (
+        <EffectComposer enableNormalPass={false}>
+          <Bloom 
+            intensity={0.3} 
+            luminanceThreshold={0.9} 
+            luminanceSmoothing={0.85}
+          />
+          <Vignette offset={0.4} darkness={0.3} />
+        </EffectComposer>
+      )}
     </>
   )
 }
@@ -81,12 +68,19 @@ export function FsdScene({ objects, lanes, curbs, motion, speedSign, extras }: F
     <Canvas
       className="fsd-canvas"
       dpr={[1, 1.5]}
-      gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
-      shadows
+      gl={{ 
+        antialias: false, 
+        alpha: false, 
+        powerPreference: 'high-performance',
+        stencil: false,
+        depth: true
+      }}
+      shadows={false}
       camera={{ position: [0, 9.5, 18], fov: 42, near: 0.1, far: 280 }}
       onCreated={({ camera }) => {
         camera.lookAt(0, 0.4, -55)
       }}
+      performance={{ min: 0.5 }}
     >
       <Suspense fallback={null}>
         <SceneContent
