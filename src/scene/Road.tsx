@@ -46,47 +46,19 @@ export function Road({ lanes, motion, curbs }: RoadProps) {
 
   return (
     <group>
-      {/* Ground terrain */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, midZ]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, midZ]} receiveShadow>
         <planeGeometry args={[120, spanZ + 40]} />
-        <meshStandardMaterial 
-          color="#8a9098" 
-          roughness={0.98} 
-          metalness={0}
-        />
+        <meshStandardMaterial color="#9aa0a8" roughness={1} metalness={0} />
       </mesh>
 
-      {/* Asphalt road surface with improved material */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[asphaltX, 0, midZ]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[asphaltX, 0, midZ]} receiveShadow>
         <planeGeometry args={[asphaltW, spanZ]} />
-        <meshStandardMaterial 
-          color="#4a5058" 
-          roughness={0.88} 
-          metalness={0.08}
-          envMapIntensity={0.4}
-        />
+        <meshStandardMaterial color="#5c6169" roughness={0.95} metalness={0} />
       </mesh>
 
-      {/* Ego lane highlight with gradient effect */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, -28]}>
         <planeGeometry args={[half * 1.55, 56]} />
-        <meshBasicMaterial 
-          color="#3b82f6" 
-          transparent 
-          opacity={0.45} 
-          depthWrite={false} 
-        />
-      </mesh>
-      
-      {/* Subtle road depth shadow near camera */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[asphaltX, 0.02, 10]}>
-        <planeGeometry args={[asphaltW * 0.95, 35]} />
-        <meshBasicMaterial 
-          color="#000000" 
-          transparent 
-          opacity={0.08} 
-          depthWrite={false} 
-        />
+        <meshBasicMaterial color="#3b82f6" transparent opacity={0.5} depthWrite={false} />
       </mesh>
 
       {solids.map((m, i) => (
@@ -102,16 +74,9 @@ export function Road({ lanes, motion, curbs }: RoadProps) {
       <CurbRail x={leftBound} nearZ={nearZ} farZ={farZ} />
       <CurbRail x={rightBound} nearZ={nearZ} farZ={farZ} />
 
-      {/* Horizon sky plane with gradient effect */}
-      <mesh position={[0, 15, -150]} rotation={[0, 0, 0]}>
-        <planeGeometry args={[180, 70]} />
-        <meshBasicMaterial color="#d0d8e4" transparent opacity={0.6} depthWrite={false} />
-      </mesh>
-      
-      {/* Mid-distance haze for depth */}
-      <mesh position={[0, 2, -90]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[140, 60]} />
-        <meshBasicMaterial color="#e0e4e8" transparent opacity={0.15} depthWrite={false} />
+      <mesh position={[0, 10, -140]}>
+        <planeGeometry args={[160, 50]} />
+        <meshBasicMaterial color="#e8eaee" transparent opacity={0.45} />
       </mesh>
     </group>
   )
@@ -160,13 +125,8 @@ function LaneMarkMesh({
       <group>
         {segs.map((s) => (
           <mesh key={s.z} position={[s.x, 0.05, s.z]}>
-            <boxGeometry args={[0.13, 0.03, 2.8]} />
-            <meshBasicMaterial 
-              color={color} 
-              transparent 
-              opacity={opacity * 0.95}
-              toneMapped={false}
-            />
+            <boxGeometry args={[0.13, 0.025, 2.8]} />
+            <meshBasicMaterial color={color} transparent opacity={opacity} />
           </mesh>
         ))}
       </group>
@@ -245,13 +205,8 @@ function PolyStrip({
     <group>
       {segs.map((s, i) => (
         <mesh key={i} position={[s.midX, 0.045, s.midZ]} rotation={[0, -s.yaw, 0]}>
-          <boxGeometry args={[width, 0.03, s.len]} />
-          <meshBasicMaterial 
-            color={color} 
-            transparent 
-            opacity={opacity * 0.95}
-            toneMapped={false}
-          />
+          <boxGeometry args={[width, 0.025, s.len]} />
+          <meshBasicMaterial color={color} transparent opacity={opacity} />
         </mesh>
       ))}
     </group>
@@ -296,13 +251,8 @@ function PolyDashes({
     <group>
       {segs.map((s, i) => (
         <mesh key={i} position={[s.x, 0.05, s.z]} rotation={[0, -s.yaw, 0]}>
-          <boxGeometry args={[0.13, 0.03, dashLen]} />
-          <meshBasicMaterial 
-            color={color} 
-            transparent 
-            opacity={opacity * 0.95}
-            toneMapped={false}
-          />
+          <boxGeometry args={[0.13, 0.025, dashLen]} />
+          <meshBasicMaterial color={color} transparent opacity={opacity} />
         </mesh>
       ))}
     </group>
@@ -356,13 +306,8 @@ function ConvergingStrip({
 
   return (
     <mesh position={[midX, 0.045, midZ]} rotation={[0, -yaw, 0]}>
-      <boxGeometry args={[width, 0.03, len]} />
-      <meshBasicMaterial 
-        color={color} 
-        transparent 
-        opacity={opacity * 0.95}
-        toneMapped={false}
-      />
+      <boxGeometry args={[width, 0.025, len]} />
+      <meshBasicMaterial color={color} transparent opacity={opacity} />
     </mesh>
   )
 }
@@ -381,21 +326,13 @@ function CurbRail({
 
   return (
     <group position={[x, 0.08, midZ]}>
-      <mesh>
+      <mesh castShadow>
         <boxGeometry args={[0.22, 0.16, len]} />
-        <meshStandardMaterial 
-          color="#dce0e8" 
-          roughness={0.75} 
-          metalness={0.05}
-        />
+        <meshStandardMaterial color="#e8ebf0" roughness={0.88} />
       </mesh>
       <mesh position={[0, 0.1, 0]}>
         <boxGeometry args={[0.34, 0.05, len]} />
-        <meshStandardMaterial 
-          color="#eff2f6" 
-          roughness={0.65}
-          metalness={0.08}
-        />
+        <meshStandardMaterial color="#f2f4f7" roughness={0.8} />
       </mesh>
     </group>
   )

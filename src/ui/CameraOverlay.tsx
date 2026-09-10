@@ -126,55 +126,19 @@ export function CameraOverlay({ videoRef, overlay, motion, visible }: CameraOver
         const bw = det.box.width * w
         const bh = det.box.height * h
 
-        // Draw glow effect for better visibility
         ctx.strokeStyle = color
-        ctx.lineWidth = 4
-        ctx.globalAlpha = 0.3
-        ctx.strokeRect(bx - 1, by - 1, bw + 2, bh + 2)
-        ctx.globalAlpha = 1.0
-
-        // Main detection box
-        ctx.strokeStyle = color
-        ctx.lineWidth = 2.5
+        ctx.lineWidth = 2
         ctx.strokeRect(bx, by, bw, bh)
 
-        // Corner indicators
-        const cornerLen = Math.min(10, bw * 0.2, bh * 0.2)
-        ctx.lineWidth = 3
-        // Top-left
-        ctx.beginPath()
-        ctx.moveTo(bx, by + cornerLen)
-        ctx.lineTo(bx, by)
-        ctx.lineTo(bx + cornerLen, by)
-        ctx.stroke()
-        // Top-right
-        ctx.beginPath()
-        ctx.moveTo(bx + bw - cornerLen, by)
-        ctx.lineTo(bx + bw, by)
-        ctx.lineTo(bx + bw, by + cornerLen)
-        ctx.stroke()
-        // Bottom-left
-        ctx.beginPath()
-        ctx.moveTo(bx, by + bh - cornerLen)
-        ctx.lineTo(bx, by + bh)
-        ctx.lineTo(bx + cornerLen, by + bh)
-        ctx.stroke()
-        // Bottom-right
-        ctx.beginPath()
-        ctx.moveTo(bx + bw - cornerLen, by + bh)
-        ctx.lineTo(bx + bw, by + bh)
-        ctx.lineTo(bx + bw, by + bh - cornerLen)
-        ctx.stroke()
-
         const label = `${det.className} ${Math.round(det.score * 100)}%`
-        ctx.font = '600 11px "DM Sans", system-ui, sans-serif'
-        const tw = ctx.measureText(label).width + 10
-        const th = 16
-        const ly = Math.max(0, by - th - 2)
-        ctx.fillStyle = 'rgba(10,12,16,0.85)'
+        ctx.font = '600 10px "DM Sans", system-ui, sans-serif'
+        const tw = ctx.measureText(label).width + 8
+        const th = 14
+        const ly = Math.max(0, by - th)
+        ctx.fillStyle = 'rgba(10,12,16,0.75)'
         ctx.fillRect(bx, ly, tw, th)
         ctx.fillStyle = color
-        ctx.fillText(label, bx + 5, ly + 11)
+        ctx.fillText(label, bx + 4, ly + 10)
       }
 
       // Locked / candidate speed-limit sign
