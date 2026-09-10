@@ -130,6 +130,7 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
   const lastMotionTs = useRef(0)
   const frameTimesRef = useRef<number[]>([])
   const lastPublishRef = useRef(0)
+  const parkedStartRef = useRef<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -175,17 +176,33 @@ export function useWorldState(videoRef: RefObject<HTMLVideoElement | null>, acti
       const speedMps = motionRef.current.update(video, dt)
       speedRef.current = speedMps
 
+      // Track parked duration
+      if (speedMps < 0.5) {
+        if (parkedStartRef.current === null) {
+          parkedStartRef.current = now
+        }
+      } else {
+        parkedStartRef.current = null
+      }
+
       if (now - lastLaneRef.current >= LANE_INTERVAL_MS) {
         lastLaneRef.current = now
         const detectedLanes = laneDetRef.current.detect(video)
         const laneConfidence = laneDetRef.current.getConfidence()
         
-        // Hide lanes when parked with low activity
-        // Check: stopped + (low lane confidence OR no objects detected)
-        const noActivity = objectsRef.current.size === 0 && laneConfidence < 0.5
-        const lowConfidence = laneConfidence < 0.25
+        // Auto-hide lanes when parked
+        const isParked = speedMps < 0.5
+        const parkedDuration = parkedStartRef.current ? now - parkedStartRef.current : 0
+        const hasObjects = objectsRef.current.size > 0
         
-        if (speedMps < 0.5 && (lowConfidence || noActivity)) {
+        // Hide lanes if:
+        // 1. Parked for 3+ seconds AND no objects detected
+        // 2. Parked AND very low lane confidence (< 0.2)
+        const shouldHide = 
+          (isParked && parkedDuration > 3000 && !hasObjects) ||
+          (isParked && laneConfidence < 0.2)
+        
+        if (shouldHide) {
           lanesRawRef.current = NO_LANES
         } else {
           lanesRawRef.current = detectedLanes
