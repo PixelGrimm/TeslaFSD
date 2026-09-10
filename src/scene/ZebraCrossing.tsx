@@ -20,10 +20,11 @@ export function ZebraCrossing({
           <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[x, 0, 0]}>
             <planeGeometry args={[stripeW * 0.72, 2.8]} />
             <meshBasicMaterial
-              color="#f2f4f7"
+              color="#ffffff"
               transparent
-              opacity={0.92 * zebra.opacity}
+              opacity={0.95 * zebra.opacity}
               depthWrite={false}
+              toneMapped={false}
             />
           </mesh>
         )

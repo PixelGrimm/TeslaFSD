@@ -6,13 +6,13 @@ import type { WorldObject } from '../world/types'
  */
 
 const SAME = {
-  body: '#c2d0e2',
-  cabin: '#8fa8c2',
-  glass: '#4a6a88',
-  trim: '#d8e4f2',
+  body: '#b8c8dc',
+  cabin: '#8098b8',
+  glass: '#3a5a78',
+  trim: '#d0dff0',
   glow: '#4a9cff',
-  wheel: '#4a5564',
-  tire: '#2a3038',
+  wheel: '#3a4554',
+  tire: '#1a2028',
 }
 
 const ONCOMING = {
@@ -58,12 +58,19 @@ function SedanMesh({
   return (
     <group position={[obj.displayX, 0, -obj.displayZ]} rotation={[0, yaw, 0]}>
       {/* Shadow / glow */}
-      <GroundGlow color={c.glow} opacity={0.26 * op} radius={1.45} />
+      <GroundGlow color={c.glow} opacity={0.35 * op} radius={1.5} />
 
       {/* Lower body tub */}
       <mesh position={[0, 0.38, 0.05]} castShadow>
         <boxGeometry args={[1.92, 0.48, 4.5]} />
-        <meshStandardMaterial color={c.body} transparent opacity={0.96 * op} roughness={0.38} metalness={0.28} />
+        <meshStandardMaterial 
+          color={c.body} 
+          transparent 
+          opacity={0.96 * op} 
+          roughness={0.32} 
+          metalness={0.38}
+          envMapIntensity={0.6}
+        />
       </mesh>
       {/* Side skirts flare */}
       <mesh position={[0, 0.22, 0]} castShadow>
@@ -78,22 +85,50 @@ function SedanMesh({
       {/* Cabin */}
       <mesh position={[0, 1.02, -0.2]} castShadow>
         <boxGeometry args={[1.68, 0.78, 2.2]} />
-        <meshStandardMaterial color={c.cabin} transparent opacity={0.95 * op} roughness={0.4} metalness={0.15} />
+        <meshStandardMaterial 
+          color={c.cabin} 
+          transparent 
+          opacity={0.95 * op} 
+          roughness={0.35} 
+          metalness={0.22}
+          envMapIntensity={0.5}
+        />
       </mesh>
       {/* Roof */}
       <mesh position={[0, 1.42, -0.25]}>
         <boxGeometry args={[1.5, 0.08, 1.85]} />
-        <meshStandardMaterial color={c.trim} transparent opacity={0.7 * op} roughness={0.25} metalness={0.35} />
+        <meshStandardMaterial 
+          color={c.trim} 
+          transparent 
+          opacity={0.75 * op} 
+          roughness={0.18} 
+          metalness={0.45}
+          envMapIntensity={0.7}
+        />
       </mesh>
       {/* Windshield */}
       <mesh position={[0, 1.05, 0.95]} rotation={[-0.48, 0, 0]}>
         <boxGeometry args={[1.52, 0.72, 0.05]} />
-        <meshStandardMaterial color={c.glass} transparent opacity={0.78 * op} roughness={0.12} metalness={0.5} />
+        <meshStandardMaterial 
+          color={c.glass} 
+          transparent 
+          opacity={0.68 * op} 
+          roughness={0.08} 
+          metalness={0.6}
+          envMapIntensity={0.9}
+        />
       </mesh>
       {/* Rear glass */}
       <mesh position={[0, 1.08, -1.28]} rotation={[0.4, 0, 0]}>
         <boxGeometry args={[1.52, 0.62, 0.05]} />
-        <meshStandardMaterial color={c.glass} transparent opacity={0.72 * op} roughness={0.12} metalness={0.45} />
+        <meshStandardMaterial 
+          color={c.glass} 
+          transparent 
+          opacity={0.62 * op} 
+          roughness={0.08} 
+          metalness={0.55}
+          envMapIntensity={0.85}
+        />
       </mesh>
       {/* Side glass L/R */}
       {[-1, 1].map((s) => (
@@ -117,17 +152,34 @@ function SedanMesh({
         <mesh key={x} position={[x, 0.48, 2.28]}>
           <boxGeometry args={[0.35, 0.14, 0.06]} />
           <meshBasicMaterial
-            color={obj.oncoming ? '#ff9944' : '#e8f2ff'}
+            color={obj.oncoming ? '#ffaa55' : '#ffffff'}
             transparent
-            opacity={0.9 * op}
+            opacity={0.95 * op}
+            toneMapped={false}
           />
         </mesh>
+      ))}
+      {/* Headlight glow */}
+      {obj.oncoming && [-0.62, 0.62].map((x) => (
+        <pointLight 
+          key={`hl${x}`}
+          position={[x, 0.48, 2.35]} 
+          color="#ffaa44" 
+          intensity={1.5 * op} 
+          distance={8}
+          decay={2}
+        />
       ))}
       {/* Taillights */}
       {[-0.62, 0.62].map((x) => (
         <mesh key={`t${x}`} position={[x, 0.52, -2.28]}>
           <boxGeometry args={[0.32, 0.12, 0.05]} />
-          <meshBasicMaterial color="#ff3344" transparent opacity={0.85 * op} />
+          <meshBasicMaterial 
+            color="#ff4455" 
+            transparent 
+            opacity={0.9 * op}
+            toneMapped={false}
+          />
         </mesh>
       ))}
       <WheelSet c={c} op={op} width={1.95} zs={[1.4, -1.35]} y={0.3} r={0.3} />
@@ -264,44 +316,104 @@ function GroundGlow({
   radius: number
 }) {
   return (
-    <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <circleGeometry args={[radius, 28]} />
-      <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
-    </mesh>
+    <>
+      {/* Outer glow */}
+      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[radius * 1.2, 32]} />
+        <meshBasicMaterial 
+          color={color} 
+          transparent 
+          opacity={opacity * 0.3} 
+          depthWrite={false} 
+        />
+      </mesh>
+      {/* Inner glow */}
+      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[radius * 0.7, 32]} />
+        <meshBasicMaterial 
+          color={color} 
+          transparent 
+          opacity={opacity * 0.8} 
+          depthWrite={false} 
+        />
+      </mesh>
+    </>
   )
 }
 
 function PersonProxy({ obj }: { obj: WorldObject }) {
   const op = 0.96 * obj.opacity
-  const body = '#b0bcc8'
-  const accent = '#8a96a4'
+  const body = '#a8b8c8'
+  const accent = '#7a8a9c'
 
   return (
     <group position={[obj.displayX, 0, -obj.displayZ]}>
-      <GroundGlow color="#6a8ab0" opacity={0.22 * obj.opacity} radius={0.42} />
+      <GroundGlow color="#5a8ab8" opacity={0.28 * obj.opacity} radius={0.45} />
       <mesh position={[-0.11, 0.42, 0]} castShadow>
         <capsuleGeometry args={[0.07, 0.5, 3, 6]} />
-        <meshStandardMaterial color={accent} transparent opacity={op} roughness={0.65} />
+        <meshStandardMaterial 
+          color={accent} 
+          transparent 
+          opacity={op} 
+          roughness={0.6} 
+          metalness={0.05}
+          envMapIntensity={0.4}
+        />
       </mesh>
       <mesh position={[0.11, 0.42, 0]} castShadow>
         <capsuleGeometry args={[0.07, 0.5, 3, 6]} />
-        <meshStandardMaterial color={accent} transparent opacity={op} roughness={0.65} />
+        <meshStandardMaterial 
+          color={accent} 
+          transparent 
+          opacity={op} 
+          roughness={0.6}
+          metalness={0.05}
+          envMapIntensity={0.4}
+        />
       </mesh>
       <mesh position={[0, 1.05, 0]} castShadow>
         <capsuleGeometry args={[0.18, 0.55, 3, 8]} />
-        <meshStandardMaterial color={body} transparent opacity={op} roughness={0.5} />
+        <meshStandardMaterial 
+          color={body} 
+          transparent 
+          opacity={op} 
+          roughness={0.5}
+          metalness={0.05}
+          envMapIntensity={0.4}
+        />
       </mesh>
       <mesh position={[-0.28, 1.05, 0]} rotation={[0.1, 0, 0.15]}>
         <capsuleGeometry args={[0.055, 0.4, 3, 6]} />
-        <meshStandardMaterial color={body} transparent opacity={op} roughness={0.55} />
+        <meshStandardMaterial 
+          color={body} 
+          transparent 
+          opacity={op} 
+          roughness={0.55}
+          metalness={0.05}
+          envMapIntensity={0.4}
+        />
       </mesh>
       <mesh position={[0.28, 1.05, 0]} rotation={[0.1, 0, -0.15]}>
         <capsuleGeometry args={[0.055, 0.4, 3, 6]} />
-        <meshStandardMaterial color={body} transparent opacity={op} roughness={0.55} />
+        <meshStandardMaterial 
+          color={body} 
+          transparent 
+          opacity={op} 
+          roughness={0.55}
+          metalness={0.05}
+          envMapIntensity={0.4}
+        />
       </mesh>
       <mesh position={[0, 1.68, 0]} castShadow>
         <sphereGeometry args={[0.15, 12, 12]} />
-        <meshStandardMaterial color={body} transparent opacity={op} roughness={0.45} />
+        <meshStandardMaterial 
+          color={body} 
+          transparent 
+          opacity={op} 
+          roughness={0.45}
+          metalness={0.05}
+          envMapIntensity={0.4}
+        />
       </mesh>
     </group>
   )
@@ -337,12 +449,23 @@ function TrafficLightProxy({ obj }: { obj: WorldObject }) {
       {lamp('amber', 0, '#ffbb33')}
       {lamp('green', -0.32, '#33dd66')}
       {lit !== 'off' && (
-        <pointLight
-          position={[0, 3.35, 0.4]}
-          color={lit === 'red' ? '#ff4444' : lit === 'amber' ? '#ffaa33' : '#44ee77'}
-          intensity={2.2 * obj.opacity}
-          distance={12}
-        />
+        <>
+          <pointLight
+            position={[0, 3.35, 0.5]}
+            color={lit === 'red' ? '#ff4444' : lit === 'amber' ? '#ffbb33' : '#44ee77'}
+            intensity={3.5 * obj.opacity}
+            distance={15}
+            decay={2}
+          />
+          {/* Additional ambient glow for the lit signal */}
+          <pointLight
+            position={[0, 3.35, 0.3]}
+            color={lit === 'red' ? '#ff6666' : lit === 'amber' ? '#ffcc66' : '#66ff99'}
+            intensity={1.5 * obj.opacity}
+            distance={8}
+            decay={2}
+          />
+        </>
       )}
     </group>
   )

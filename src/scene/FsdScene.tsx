@@ -1,5 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import { Suspense } from 'react'
+import { EffectComposer, Bloom, SMAA, Vignette, ToneMapping } from '@react-three/postprocessing'
+import { Environment } from '@react-three/drei'
 import type { CurbState } from '../vision/curbTypes'
 import type { EgoMotion, LaneState, SceneExtras, SpeedLimitSignState, WorldObject } from '../world/types'
 import { DetectedObject } from './DetectedObject'
@@ -26,18 +28,27 @@ function SceneContent({ objects, lanes, curbs, motion, speedSign, extras }: FsdS
 
   return (
     <>
-      <color attach="background" args={['#e4e6ea']} />
-      <fog attach="fog" args={['#e4e6ea', 70, 200]} />
+      <color attach="background" args={['#d8dce4']} />
+      <fog attach="fog" args={['#d8dce4', 60, 220]} />
 
-      <ambientLight intensity={0.75} />
+      {/* Enhanced lighting setup */}
+      <ambientLight intensity={0.6} />
       <directionalLight
-        position={[8, 28, 12]}
-        intensity={1.15}
+        position={[10, 32, 15]}
+        intensity={1.8}
         castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-left={-40}
+        shadow-camera-right={40}
+        shadow-camera-top={40}
+        shadow-camera-bottom={-40}
+        shadow-bias={-0.0001}
       />
-      <hemisphereLight args={['#f2f4f7', '#b8bcc4', 0.55]} />
+      <hemisphereLight args={['#ffffff', '#8a96a4', 0.7]} />
+      
+      {/* Subtle environment lighting for reflections */}
+      <Environment preset="city" />
 
       <Road lanes={lanes} motion={motion} curbs={curbs} />
       {extras.zebra && (
@@ -48,6 +59,19 @@ function SceneContent({ objects, lanes, curbs, motion, speedSign, extras }: FsdS
         <DetectedObject key={obj.id} obj={obj} />
       ))}
       {speedSign && <SpeedLimitSign sign={speedSign} />}
+      
+      {/* Post-processing effects */}
+      <EffectComposer disableNormalPass>
+        <Bloom 
+          intensity={0.4} 
+          luminanceThreshold={0.85} 
+          luminanceSmoothing={0.9}
+          mipmapBlur
+        />
+        <ToneMapping />
+        <Vignette offset={0.3} darkness={0.4} />
+        <SMAA />
+      </EffectComposer>
     </>
   )
 }
