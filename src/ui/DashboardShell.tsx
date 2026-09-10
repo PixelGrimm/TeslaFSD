@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { SpeedLimitValue } from '../vision/speedLimit'
 import { StatusBar } from './StatusBar'
+import packageJson from '../../package.json'
 
 interface DashboardShellProps {
   children: ReactNode
@@ -27,7 +28,9 @@ export function DashboardShell({
             {showPip ? 'Hide camera' : 'Show camera'}
           </button>
         </div>
-        <div className="chrome-center" />
+        <div className="chrome-center">
+          <span className="version-label">v{packageJson.version}</span>
+        </div>
         <div className="chrome-group right" />
       </footer>
     </div>

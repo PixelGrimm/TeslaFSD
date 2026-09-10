@@ -1,3 +1,5 @@
+import packageJson from '../../package.json'
+
 interface OnboardingProps {
   modelReady: boolean
   modelError: string | null
@@ -16,7 +18,7 @@ export function Onboarding({
   return (
     <div className="onboarding">
       <div className="onboarding-card">
-        <p className="eyebrow">Visualization</p>
+        <p className="eyebrow">Visualization v{packageJson.version}</p>
         <h1>TESLA</h1>
         <p className="lede">
           Mount your iPad landscape with the rear camera facing the road. Detected cars, people, and
