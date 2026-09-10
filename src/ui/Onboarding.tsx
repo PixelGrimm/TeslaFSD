@@ -41,6 +41,15 @@ export function Onboarding({
           {starting ? 'Starting camera…' : 'Enable camera'}
         </button>
 
+        <button
+          type="button"
+          className="refresh-btn"
+          onClick={() => window.location.reload()}
+          title="Refresh app"
+        >
+          Refresh
+        </button>
+
         <ol className="setup-steps">
           <li>Add to Home Screen for fullscreen</li>
           <li>Use HTTPS (or a tunnel) so Safari allows the camera</li>
