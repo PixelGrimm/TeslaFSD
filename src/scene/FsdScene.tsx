@@ -61,7 +61,7 @@ function SceneContent({ objects, lanes, curbs, motion, speedSign, extras }: FsdS
       {speedSign && <SpeedLimitSign sign={speedSign} />}
       
       {/* Post-processing effects */}
-      <EffectComposer disableNormalPass>
+      <EffectComposer enableNormalPass={false}>
         <Bloom 
           intensity={0.4} 
           luminanceThreshold={0.85} 
