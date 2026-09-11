@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber'
 import { Suspense } from 'react'
+import * as THREE from 'three'
 import type { CurbState } from '../vision/curbTypes'
 import type { EgoMotion, LaneState, SceneExtras, SpeedLimitSignState, WorldObject } from '../world/types'
 import { DetectedObject } from './DetectedObject'
@@ -26,18 +27,31 @@ function SceneContent({ objects, lanes, curbs, motion, speedSign, extras }: FsdS
 
   return (
     <>
-      <color attach="background" args={['#e4e6ea']} />
-      <fog attach="fog" args={['#e4e6ea', 70, 200]} />
+      <color attach="background" args={['#dce2ea']} />
+      <fog attach="fog" args={['#d8dde5', 65, 220]} />
 
-      <ambientLight intensity={0.75} />
+      <ambientLight intensity={0.55} />
       <directionalLight
-        position={[8, 28, 12]}
-        intensity={1.15}
+        position={[12, 32, 18]}
+        intensity={1.35}
         castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-left={-35}
+        shadow-camera-right={35}
+        shadow-camera-top={35}
+        shadow-camera-bottom={-35}
+        shadow-camera-near={1}
+        shadow-camera-far={80}
+        shadow-bias={-0.0005}
       />
-      <hemisphereLight args={['#f2f4f7', '#b8bcc4', 0.55]} />
+      <directionalLight
+        position={[-8, 20, -15]}
+        intensity={0.45}
+        color="#a8c0e0"
+      />
+      <hemisphereLight args={['#f5f8fc', '#c5cdd8', 0.65]} />
+      <pointLight position={[0, 8, -25]} intensity={1.2} distance={40} decay={2} color="#ffffff" />
 
       <Road lanes={lanes} motion={motion} curbs={curbs} />
       {extras.zebra && (
@@ -56,12 +70,20 @@ export function FsdScene({ objects, lanes, curbs, motion, speedSign, extras }: F
   return (
     <Canvas
       className="fsd-canvas"
-      dpr={[1, 1.5]}
-      gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
-      shadows
-      camera={{ position: [0, 9.5, 18], fov: 42, near: 0.1, far: 280 }}
-      onCreated={({ camera }) => {
+      dpr={[1, 2]}
+      gl={{ 
+        antialias: true, 
+        alpha: false, 
+        powerPreference: 'high-performance',
+        toneMapping: THREE.ACESFilmicToneMapping,
+        toneMappingExposure: 1.1
+      }}
+      shadows="soft"
+      camera={{ position: [0, 9.5, 18], fov: 42, near: 0.1, far: 300 }}
+      onCreated={({ camera, gl }) => {
         camera.lookAt(0, 0.4, -55)
+        gl.shadowMap.enabled = true
+        gl.shadowMap.type = THREE.PCFSoftShadowMap
       }}
     >
       <Suspense fallback={null}>

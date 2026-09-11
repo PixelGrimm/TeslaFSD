@@ -82,27 +82,44 @@ export function SpeedLimitSign({ sign }: { sign: SpeedLimitSignState }) {
       position={[sign.displayX, 0, -sign.displayZ]}
       rotation={[0, sign.displayX < 0 ? Math.PI * 0.12 : -Math.PI * 0.12, 0]}
     >
-      <mesh position={[0, poleH / 2, 0]} castShadow>
-        <cylinderGeometry args={[0.035, 0.042, poleH, 10]} />
-        <meshStandardMaterial color="#6a6560" roughness={0.85} metalness={0.2} />
+      <mesh position={[0, poleH / 2, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.035, 0.042, poleH, 12]} />
+        <meshStandardMaterial 
+          color="#787470" 
+          roughness={0.75} 
+          metalness={0.28}
+          envMapIntensity={0.6}
+        />
       </mesh>
 
-      <mesh position={[0, poleTop - 0.02, 0]}>
-        <cylinderGeometry args={[0.05, 0.05, 0.06, 10]} />
-        <meshStandardMaterial color="#55524e" roughness={0.7} metalness={0.35} />
+      <mesh position={[0, poleTop - 0.02, 0]} castShadow>
+        <cylinderGeometry args={[0.05, 0.05, 0.06, 12]} />
+        <meshStandardMaterial 
+          color="#656260" 
+          roughness={0.65} 
+          metalness={0.38}
+          envMapIntensity={0.7}
+        />
       </mesh>
 
       <mesh position={[0, faceY, 0.025]} castShadow>
         <circleGeometry args={[radius, 48]} />
-        <meshBasicMaterial map={texture} transparent opacity={sign.opacity} toneMapped={false} />
+        <meshBasicMaterial 
+          map={texture} 
+          transparent 
+          opacity={sign.opacity} 
+          toneMapped={false}
+        />
       </mesh>
-      <mesh position={[0, faceY, -0.012]}>
+      <mesh position={[0, faceY, -0.012]} receiveShadow>
         <circleGeometry args={[radius, 32]} />
         <meshStandardMaterial
-          color="#d8d8d8"
-          roughness={0.7}
+          color="#e5e5e5"
+          roughness={0.6}
+          metalness={0.12}
           transparent
           opacity={sign.opacity}
+          envMapIntensity={0.5}
         />
       </mesh>
     </group>
