@@ -6,23 +6,23 @@ import type { WorldObject } from '../world/types'
  */
 
 const SAME = {
-  body: '#c2d0e2',
-  cabin: '#8fa8c2',
-  glass: '#4a6a88',
-  trim: '#d8e4f2',
-  glow: '#4a9cff',
-  wheel: '#4a5564',
-  tire: '#2a3038',
+  body: '#c8d5e8',
+  cabin: '#95adc8',
+  glass: '#5a7a98',
+  trim: '#e0ecf8',
+  glow: '#4f9eff',
+  wheel: '#525c6c',
+  tire: '#2c343c',
 }
 
 const ONCOMING = {
-  body: '#dcc8b4',
-  cabin: '#b89878',
-  glass: '#7a6048',
-  trim: '#ead8c8',
-  glow: '#e88850',
-  wheel: '#6a5a4a',
-  tire: '#3a3228',
+  body: '#e5d0ba',
+  cabin: '#c5a488',
+  glass: '#8a7258',
+  trim: '#f2e4d8',
+  glow: '#ff9555',
+  wheel: '#756550',
+  tire: '#3c3630',
 }
 
 function VehicleProxy({ obj }: { obj: WorldObject }) {
@@ -58,42 +58,91 @@ function SedanMesh({
   return (
     <group position={[obj.displayX, 0, -obj.displayZ]} rotation={[0, yaw, 0]}>
       {/* Shadow / glow */}
-      <GroundGlow color={c.glow} opacity={0.26 * op} radius={1.45} />
+      <GroundGlow color={c.glow} opacity={0.35 * op} radius={1.55} />
 
       {/* Lower body tub */}
-      <mesh position={[0, 0.38, 0.05]} castShadow>
+      <mesh position={[0, 0.38, 0.05]} castShadow receiveShadow>
         <boxGeometry args={[1.92, 0.48, 4.5]} />
-        <meshStandardMaterial color={c.body} transparent opacity={0.96 * op} roughness={0.38} metalness={0.28} />
+        <meshStandardMaterial 
+          color={c.body} 
+          transparent 
+          opacity={0.96 * op} 
+          roughness={0.32} 
+          metalness={0.35}
+          envMapIntensity={0.8}
+        />
       </mesh>
       {/* Side skirts flare */}
-      <mesh position={[0, 0.22, 0]} castShadow>
+      <mesh position={[0, 0.22, 0]} castShadow receiveShadow>
         <boxGeometry args={[2.02, 0.18, 4.2]} />
-        <meshStandardMaterial color={c.body} transparent opacity={0.95 * op} roughness={0.42} metalness={0.2} />
+        <meshStandardMaterial 
+          color={c.body} 
+          transparent 
+          opacity={0.95 * op} 
+          roughness={0.38} 
+          metalness={0.28}
+          envMapIntensity={0.7}
+        />
       </mesh>
       {/* Hood */}
-      <mesh position={[0, 0.62, 1.25]} rotation={[0.08, 0, 0]} castShadow>
+      <mesh position={[0, 0.62, 1.25]} rotation={[0.08, 0, 0]} castShadow receiveShadow>
         <boxGeometry args={[1.78, 0.22, 1.35]} />
-        <meshStandardMaterial color={c.trim} transparent opacity={0.95 * op} roughness={0.32} metalness={0.3} />
+        <meshStandardMaterial 
+          color={c.trim} 
+          transparent 
+          opacity={0.95 * op} 
+          roughness={0.28} 
+          metalness={0.38}
+          envMapIntensity={0.9}
+        />
       </mesh>
       {/* Cabin */}
-      <mesh position={[0, 1.02, -0.2]} castShadow>
+      <mesh position={[0, 1.02, -0.2]} castShadow receiveShadow>
         <boxGeometry args={[1.68, 0.78, 2.2]} />
-        <meshStandardMaterial color={c.cabin} transparent opacity={0.95 * op} roughness={0.4} metalness={0.15} />
+        <meshStandardMaterial 
+          color={c.cabin} 
+          transparent 
+          opacity={0.95 * op} 
+          roughness={0.35} 
+          metalness={0.22}
+          envMapIntensity={0.75}
+        />
       </mesh>
       {/* Roof */}
-      <mesh position={[0, 1.42, -0.25]}>
+      <mesh position={[0, 1.42, -0.25]} castShadow receiveShadow>
         <boxGeometry args={[1.5, 0.08, 1.85]} />
-        <meshStandardMaterial color={c.trim} transparent opacity={0.7 * op} roughness={0.25} metalness={0.35} />
+        <meshStandardMaterial 
+          color={c.trim} 
+          transparent 
+          opacity={0.75 * op} 
+          roughness={0.22} 
+          metalness={0.42}
+          envMapIntensity={0.95}
+        />
       </mesh>
       {/* Windshield */}
-      <mesh position={[0, 1.05, 0.95]} rotation={[-0.48, 0, 0]}>
+      <mesh position={[0, 1.05, 0.95]} rotation={[-0.48, 0, 0]} castShadow>
         <boxGeometry args={[1.52, 0.72, 0.05]} />
-        <meshStandardMaterial color={c.glass} transparent opacity={0.78 * op} roughness={0.12} metalness={0.5} />
+        <meshStandardMaterial 
+          color={c.glass} 
+          transparent 
+          opacity={0.82 * op} 
+          roughness={0.08} 
+          metalness={0.6}
+          envMapIntensity={1.2}
+        />
       </mesh>
       {/* Rear glass */}
-      <mesh position={[0, 1.08, -1.28]} rotation={[0.4, 0, 0]}>
+      <mesh position={[0, 1.08, -1.28]} rotation={[0.4, 0, 0]} castShadow>
         <boxGeometry args={[1.52, 0.62, 0.05]} />
-        <meshStandardMaterial color={c.glass} transparent opacity={0.72 * op} roughness={0.12} metalness={0.45} />
+        <meshStandardMaterial 
+          color={c.glass} 
+          transparent 
+          opacity={0.78 * op} 
+          roughness={0.08} 
+          metalness={0.55}
+          envMapIntensity={1.1}
+        />
       </mesh>
       {/* Side glass L/R */}
       {[-1, 1].map((s) => (

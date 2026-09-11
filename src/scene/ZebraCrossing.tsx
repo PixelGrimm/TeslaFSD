@@ -17,13 +17,16 @@ export function ZebraCrossing({
       {Array.from({ length: stripes }, (_, i) => {
         const x = -half + stripeW * (i + 0.5)
         return (
-          <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[x, 0, 0]}>
+          <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[x, 0, 0]} receiveShadow>
             <planeGeometry args={[stripeW * 0.72, 2.8]} />
-            <meshBasicMaterial
-              color="#f2f4f7"
+            <meshStandardMaterial
+              color="#f8fafb"
               transparent
-              opacity={0.92 * zebra.opacity}
+              opacity={0.96 * zebra.opacity}
               depthWrite={false}
+              roughness={0.7}
+              metalness={0.05}
+              envMapIntensity={0.4}
             />
           </mesh>
         )

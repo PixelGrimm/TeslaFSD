@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
+import * as THREE from 'three'
 import type { Group } from 'three'
 import type { CurbState } from '../vision/curbTypes'
 import type { EgoMotion, LaneMark, LaneState } from '../world/types'
@@ -48,17 +49,33 @@ export function Road({ lanes, motion, curbs }: RoadProps) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, midZ]} receiveShadow>
         <planeGeometry args={[120, spanZ + 40]} />
-        <meshStandardMaterial color="#9aa0a8" roughness={1} metalness={0} />
+        <meshStandardMaterial 
+          color="#a5abb5" 
+          roughness={0.92} 
+          metalness={0.02}
+          envMapIntensity={0.3}
+        />
       </mesh>
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[asphaltX, 0, midZ]} receiveShadow>
         <planeGeometry args={[asphaltW, spanZ]} />
-        <meshStandardMaterial color="#5c6169" roughness={0.95} metalness={0} />
+        <meshStandardMaterial 
+          color="#4a505a" 
+          roughness={0.88} 
+          metalness={0.05}
+          envMapIntensity={0.4}
+        />
       </mesh>
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, -28]}>
         <planeGeometry args={[half * 1.55, 56]} />
-        <meshBasicMaterial color="#3b82f6" transparent opacity={0.5} depthWrite={false} />
+        <meshBasicMaterial 
+          color="#4f9eff" 
+          transparent 
+          opacity={0.18} 
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
       </mesh>
 
       {solids.map((m, i) => (
@@ -76,7 +93,7 @@ export function Road({ lanes, motion, curbs }: RoadProps) {
 
       <mesh position={[0, 10, -140]}>
         <planeGeometry args={[160, 50]} />
-        <meshBasicMaterial color="#e8eaee" transparent opacity={0.45} />
+        <meshBasicMaterial color="#dce2ea" transparent opacity={0.55} />
       </mesh>
     </group>
   )
@@ -326,13 +343,23 @@ function CurbRail({
 
   return (
     <group position={[x, 0.08, midZ]}>
-      <mesh castShadow>
+      <mesh castShadow receiveShadow>
         <boxGeometry args={[0.22, 0.16, len]} />
-        <meshStandardMaterial color="#e8ebf0" roughness={0.88} />
+        <meshStandardMaterial 
+          color="#e5e9ef" 
+          roughness={0.75} 
+          metalness={0.08}
+          envMapIntensity={0.5}
+        />
       </mesh>
-      <mesh position={[0, 0.1, 0]}>
+      <mesh position={[0, 0.1, 0]} castShadow>
         <boxGeometry args={[0.34, 0.05, len]} />
-        <meshStandardMaterial color="#f2f4f7" roughness={0.8} />
+        <meshStandardMaterial 
+          color="#f5f7fa" 
+          roughness={0.65} 
+          metalness={0.12}
+          envMapIntensity={0.6}
+        />
       </mesh>
     </group>
   )
