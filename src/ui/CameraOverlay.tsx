@@ -10,13 +10,13 @@ interface CameraOverlayProps {
 }
 
 const CLASS_COLOR: Record<string, string> = {
-  car: '#5b9cff',
-  truck: '#7eb6ff',
-  bus: '#9bc4ff',
-  motorcycle: '#a8d4ff',
-  person: '#3ddc84',
-  'traffic light': '#f0c93a',
-  'stop sign': '#ff6b6b',
+  car: '#4f9eff',
+  truck: '#70b0ff',
+  bus: '#90c5ff',
+  motorcycle: '#b0d8ff',
+  person: '#10d876',
+  'traffic light': '#ffb84d',
+  'stop sign': '#ff5757',
 }
 
 /** Draws detection boxes + classified lane lines on the live camera PiP. */
@@ -68,7 +68,11 @@ export function CameraOverlay({ videoRef, overlay, motion, visible, showLanes }:
         const vanishY = y0 - h * 0.1
         const vanishX = (data.vpX ?? 0.5) * w
 
-        ctx.fillStyle = 'rgba(59, 130, 246, 0.06)'
+        const gradient = ctx.createLinearGradient(0, y0, 0, y1)
+        gradient.addColorStop(0, 'rgba(79, 158, 255, 0.05)')
+        gradient.addColorStop(0.5, 'rgba(79, 158, 255, 0.08)')
+        gradient.addColorStop(1, 'rgba(79, 158, 255, 0.12)')
+        ctx.fillStyle = gradient
         ctx.fillRect(0, y0, w, y1 - y0)
 
         const lines = data.lines.length
@@ -92,10 +96,12 @@ export function CameraOverlay({ videoRef, overlay, motion, visible, showLanes }:
           const xBot = line.x * w
           const xTop = vanishX + (xBot - vanishX) * 0.12
           const isYellow = line.color === 'yellow'
-          const color = isYellow ? '#f0c93a' : '#ffffff'
+          const color = isYellow ? '#ffb84d' : '#ffffff'
 
           ctx.strokeStyle = color
-          ctx.lineWidth = isYellow ? 3 : 2.25
+          ctx.lineWidth = isYellow ? 3.5 : 2.5
+          ctx.shadowBlur = isYellow ? 8 : 6
+          ctx.shadowColor = isYellow ? 'rgba(255, 184, 77, 0.5)' : 'rgba(255, 255, 255, 0.4)'
           if (line.style === 'dashed') {
             ctx.setLineDash([7, 6])
             ctx.lineDashOffset = -dashPhase.current
@@ -115,11 +121,15 @@ export function CameraOverlay({ videoRef, overlay, motion, visible, showLanes }:
           ctx.stroke()
           ctx.setLineDash([])
           ctx.lineDashOffset = 0
+          ctx.shadowBlur = 0
 
           ctx.fillStyle = color
+          ctx.shadowBlur = isYellow ? 6 : 4
+          ctx.shadowColor = isYellow ? 'rgba(255, 184, 77, 0.6)' : 'rgba(255, 255, 255, 0.5)'
           ctx.beginPath()
-          ctx.arc(xBot, y1 - 2, isYellow ? 3.5 : 2.8, 0, Math.PI * 2)
+          ctx.arc(xBot, y1 - 2, isYellow ? 4 : 3.2, 0, Math.PI * 2)
           ctx.fill()
+          ctx.shadowBlur = 0
         }
       }
 
@@ -133,18 +143,33 @@ export function CameraOverlay({ videoRef, overlay, motion, visible, showLanes }:
         const bh = det.box.height * h
 
         ctx.strokeStyle = color
-        ctx.lineWidth = 2
+        ctx.lineWidth = 2.5
+        ctx.shadowBlur = 12
+        ctx.shadowColor = color
         ctx.strokeRect(bx, by, bw, bh)
+        ctx.shadowBlur = 0
 
         const label = `${det.className} ${Math.round(det.score * 100)}%`
-        ctx.font = '600 10px "DM Sans", system-ui, sans-serif'
-        const tw = ctx.measureText(label).width + 8
-        const th = 14
-        const ly = Math.max(0, by - th)
-        ctx.fillStyle = 'rgba(10,12,16,0.75)'
+        ctx.font = '700 11px "Inter", "DM Sans", system-ui, sans-serif'
+        const tw = ctx.measureText(label).width + 12
+        const th = 18
+        const ly = Math.max(0, by - th - 2)
+        
+        const gradient = ctx.createLinearGradient(bx, ly, bx, ly + th)
+        gradient.addColorStop(0, 'rgba(10,13,20,0.92)')
+        gradient.addColorStop(1, 'rgba(10,13,20,0.85)')
+        ctx.fillStyle = gradient
         ctx.fillRect(bx, ly, tw, th)
+        
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1
+        ctx.strokeRect(bx, ly, tw, th)
+        
         ctx.fillStyle = color
-        ctx.fillText(label, bx + 4, ly + 10)
+        ctx.shadowBlur = 4
+        ctx.shadowColor = color
+        ctx.fillText(label, bx + 6, ly + 12)
+        ctx.shadowBlur = 0
       }
 
       // Locked / candidate speed-limit sign
@@ -212,12 +237,22 @@ export function CameraOverlay({ videoRef, overlay, motion, visible, showLanes }:
       ]
         .filter(Boolean)
         .join(' · ')
-      ctx.font = '600 9px "DM Sans", system-ui, sans-serif'
-      const hw = ctx.measureText(hud).width + 10
-      ctx.fillStyle = 'rgba(10,12,16,0.7)'
-      ctx.fillRect(4, 4, hw, 16)
+      ctx.font = '700 10px "Inter", "DM Sans", system-ui, sans-serif'
+      const hw = ctx.measureText(hud).width + 16
+      const hh = 20
+      
+      const hudGradient = ctx.createLinearGradient(4, 4, 4, 4 + hh)
+      hudGradient.addColorStop(0, 'rgba(10,13,20,0.88)')
+      hudGradient.addColorStop(1, 'rgba(10,13,20,0.75)')
+      ctx.fillStyle = hudGradient
+      ctx.fillRect(6, 6, hw, hh)
+      
+      ctx.strokeStyle = 'rgba(79, 158, 255, 0.4)'
+      ctx.lineWidth = 1.5
+      ctx.strokeRect(6, 6, hw, hh)
+      
       ctx.fillStyle = '#e8ecf2'
-      ctx.fillText(hud, 9, 15)
+      ctx.fillText(hud, 14, 19)
     }
 
     raf = requestAnimationFrame(draw)

@@ -16,15 +16,18 @@ export function StatusBar({ speedLimit }: StatusBarProps) {
 
   return (
     <header className="status-bar status-bar-minimal">
-      <div
-        className={`limit-circle${national ? ' national' : ''}`}
-        aria-label={label}
-      >
-        {national ? (
-          <span className="limit-slash" aria-hidden />
-        ) : (
-          <span className="limit-circle-num">{speedLimit ?? '—'}</span>
-        )}
+      <div className="status-bar-content">
+        <div
+          className={`limit-circle${national ? ' national' : ''}`}
+          aria-label={label}
+          title={label}
+        >
+          {national ? (
+            <span className="limit-slash" aria-hidden />
+          ) : (
+            <span className="limit-circle-num">{speedLimit ?? '—'}</span>
+          )}
+        </div>
       </div>
     </header>
   )

@@ -5,6 +5,9 @@ import { CameraOverlay } from './ui/CameraOverlay'
 import { DashboardShell } from './ui/DashboardShell'
 import { Onboarding } from './ui/Onboarding'
 import { useWorldState } from './world/useWorldState'
+import { MapBackground } from './map/MapBackground'
+import { ObjectOverlay } from './map/ObjectOverlay'
+import { useGeolocation } from './map/useGeolocation'
 import './styles/tesla.css'
 
 export default function App() {
@@ -13,9 +16,12 @@ export default function App() {
   const [starting, setStarting] = useState(false)
   const [showPip, setShowPip] = useState(true)
   const [showLanes, setShowLanes] = useState(true)
+  const [showMap, setShowMap] = useState(true)
 
   const { objects, lanes, curbs, extras, motion, overlay, speedLimit, speedSign, modelReady, modelError } =
     useWorldState(videoRef, started && cameraReady)
+  
+  const geolocation = useGeolocation()
 
   const requestWakeLock = useCallback(async () => {
     try {
@@ -92,8 +98,14 @@ export default function App() {
           onTogglePip={() => setShowPip((v) => !v)}
           showLanes={showLanes}
           onToggleLanes={() => setShowLanes((v) => !v)}
+          showMap={showMap}
+          onToggleMap={() => setShowMap((v) => !v)}
         >
           {cameraError && <div className="runtime-error">{cameraError}</div>}
+          
+          {showMap && <MapBackground geolocation={geolocation} />}
+          {showMap && <ObjectOverlay objects={objects} geolocation={geolocation} />}
+          
           <FsdScene
             objects={objects}
             lanes={showLanes ? lanes : { ...lanes, marks: [] }}
