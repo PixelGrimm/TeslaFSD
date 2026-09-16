@@ -678,6 +678,86 @@ button {
   font-size: 0.85rem;
 }
 
+/* —— Map Background —— */
+.map-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.map-container {
+  width: 100%;
+  height: 100%;
+  transition: transform 0.3s ease;
+}
+
+.map-tiles {
+  filter: brightness(0.7) contrast(1.1) saturate(0.8);
+}
+
+.ego-car-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.map-error,
+.map-loading,
+.map-warning {
+  position: absolute;
+  top: calc(80px + var(--safe-t));
+  right: 20px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  backdrop-filter: blur(20px);
+  z-index: 15;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.map-error {
+  background: rgba(255, 87, 87, 0.85);
+  color: #ffffff;
+  border: 1px solid rgba(255, 87, 87, 0.5);
+}
+
+.map-loading {
+  background: rgba(79, 158, 255, 0.85);
+  color: #ffffff;
+  border: 1px solid rgba(79, 158, 255, 0.5);
+}
+
+.map-warning {
+  background: rgba(255, 184, 77, 0.85);
+  color: #0a0d14;
+  border: 1px solid rgba(255, 184, 77, 0.5);
+}
+
+/* —— Object Overlay —— */
+.object-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+}
+
+/* —— 3D Scene Overlay —— */
+.viz-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.fsd-canvas {
+  opacity: 0.85;
+  mix-blend-mode: screen;
+}
+
 @media (max-width: 720px) {
   .hint {
     display: none;

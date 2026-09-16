@@ -10,6 +10,8 @@ interface DashboardShellProps {
   onTogglePip: () => void
   showLanes: boolean
   onToggleLanes: () => void
+  showMap: boolean
+  onToggleMap: () => void
 }
 
 export function DashboardShell({
@@ -19,6 +21,8 @@ export function DashboardShell({
   onTogglePip,
   showLanes,
   onToggleLanes,
+  showMap,
+  onToggleMap,
 }: DashboardShellProps) {
   return (
     <div className="dashboard">
@@ -33,6 +37,9 @@ export function DashboardShell({
           </button>
           <button type="button" className="chrome-btn" onClick={onToggleLanes}>
             {showLanes ? 'Hide lanes' : 'Show lanes'}
+          </button>
+          <button type="button" className="chrome-btn" onClick={onToggleMap}>
+            {showMap ? 'Hide map' : 'Show map'}
           </button>
         </div>
         <div className="chrome-center">
